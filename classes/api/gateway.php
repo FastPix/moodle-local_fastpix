@@ -142,12 +142,18 @@ public function input_video_direct_upload(
         $body['pushMediaSettings']['drmConfigurationId'] = $drmconfigid;
     }
 
+    // X-Client-Type: web-browser tells FastPix to issue a POST-signed
+    // resumable upload URL instead of the default one-shot PUT URL.
+    // Required for @fastpix/resumable-uploads SDK on the browser side
+    // (the SDK uploads chunks via POST with Content-Range; against a
+    // PUT-signed URL FastPix returns 405 Method Not Allowed).
     return $this->request(
         'POST',
         '/v1/on-demand/upload',
         $body,
         self::PROFILE_STANDARD,
         $this->idempotency_key('input_video_direct_upload', $ownerhash, $body),
+        ['X-Client-Type' => 'web-browser'],
     );
 }
 
@@ -293,6 +299,7 @@ private function request(
     ?array $body,
     array $profile,
     ?string $idempotencykey,
+    array $extraheaders = [],
 ): \stdClass {
     $endpointkey = $this->endpoint_key($method, $path);
     $requestid   = 'req_' . random_string(12);
@@ -317,7 +324,7 @@ private function request(
                 'connect_timeout'  => $profile['connect'],
                 'timeout'          => $profile['read'],
                 'auth'             => [$this->credentials->apikey(), $this->credentials->apisecret()],
-                'headers'          => $this->build_headers($idempotencykey, $requestid),
+                'headers'          => $this->build_headers($idempotencykey, $requestid, $extraheaders),
                 'json'             => $body,
                 'http_errors'      => false,
                 // FastPix's CDN advertises AAAA records; many container.
@@ -471,7 +478,7 @@ private function decode_body($response): \stdClass {
      * @param ?string $requestid
      * @return array
      */
-private function build_headers(?string $idempotencykey, ?string $requestid = null): array {
+private function build_headers(?string $idempotencykey, ?string $requestid = null, array $extraheaders = []): array {
     $headers = [
         'Accept'     => 'application/json',
         'User-Agent' => 'local_fastpix/' . (string)get_config('local_fastpix', 'version'),
@@ -481,6 +488,9 @@ private function build_headers(?string $idempotencykey, ?string $requestid = nul
     }
     if ($requestid !== null && $requestid !== '') {
         $headers['X-Request-Id'] = $requestid;
+    }
+    foreach ($extraheaders as $name => $value) {
+        $headers[$name] = $value;
     }
     return $headers;
 }
