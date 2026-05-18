@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<XMLDB PATH="local/fastpix/db" VERSION="20260501" COMMENT="FastPix backend tables">
+  <TABLES>
+
+    <TABLE NAME="local_fastpix_asset" COMMENT="Cached FastPix asset metadata">
+      <FIELDS>
+        <FIELD NAME="id"                     TYPE="int"  LENGTH="10"  NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="fastpix_id"             TYPE="char" LENGTH="64"  NOTNULL="true"  COMMENT="FastPix Media ID (UUID)"/>
+        <FIELD NAME="playback_id"            TYPE="char" LENGTH="64"  NOTNULL="false" COMMENT="Primary playback ID; populated when media.ready arrives"/>
+        <FIELD NAME="owner_userid"           TYPE="int"  LENGTH="10"  NOTNULL="true"  COMMENT="0 = sentinel for cold-start lazy-fetched assets"/>
+        <FIELD NAME="title"                  TYPE="char" LENGTH="255" NOTNULL="true"/>
+        <FIELD NAME="duration"               TYPE="number" LENGTH="10" DECIMALS="3" NOTNULL="false" COMMENT="Seconds, fractional"/>
+        <FIELD NAME="status"                 TYPE="char" LENGTH="24"  NOTNULL="true" DEFAULT="created"/>
+        <FIELD NAME="access_policy"          TYPE="char" LENGTH="16"  NOTNULL="true" DEFAULT="private" COMMENT="public|private|drm"/>
+        <FIELD NAME="drm_required"           TYPE="int"  LENGTH="1"   NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="no_skip_required"       TYPE="int"  LENGTH="1"   NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="has_captions"           TYPE="int"  LENGTH="1"   NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="last_event_id"          TYPE="char" LENGTH="64"  NOTNULL="false"/>
+        <FIELD NAME="last_event_at"          TYPE="int"  LENGTH="10"  NOTNULL="false"/>
+        <FIELD NAME="deleted_at"             TYPE="int"  LENGTH="10"  NOTNULL="false"/>
+        <FIELD NAME="gdpr_delete_pending_at" TYPE="int"  LENGTH="10"  NOTNULL="false" COMMENT="Set when local delete done but FastPix delete failed"/>
+        <FIELD NAME="gdpr_delete_attempts"   TYPE="int"  LENGTH="10"  NOTNULL="true" DEFAULT="0" COMMENT="Number of remote-delete retry attempts; capped at 10 then row stops being retried"/>
+        <FIELD NAME="timecreated"            TYPE="int"  LENGTH="10"  NOTNULL="true"/>
+        <FIELD NAME="timemodified"           TYPE="int"  LENGTH="10"  NOTNULL="true"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary"        TYPE="primary" FIELDS="id"/>
+        <KEY NAME="uk_fastpix_id"  TYPE="unique"  FIELDS="fastpix_id"/>
+        <KEY NAME="uk_playback_id" TYPE="unique"  FIELDS="playback_id"/>
+        <KEY NAME="fk_owner"       TYPE="foreign" FIELDS="owner_userid" REFTABLE="user" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="idx_owner_deleted" UNIQUE="false" FIELDS="owner_userid, deleted_at"/>
+        <INDEX NAME="idx_status"        UNIQUE="false" FIELDS="status"/>
+        <INDEX NAME="idx_deleted_at"    UNIQUE="false" FIELDS="deleted_at"/>
+        <INDEX NAME="idx_gdpr_pending"  UNIQUE="false" FIELDS="gdpr_delete_pending_at"/>
+      </INDEXES>
+    </TABLE>
+
+    <TABLE NAME="local_fastpix_track" COMMENT="Caption tracks per asset">
+      <FIELDS>
+        <FIELD NAME="id"           TYPE="int"  LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="asset_id"     TYPE="int"  LENGTH="10" NOTNULL="true"/>
+        <FIELD NAME="track_kind"   TYPE="char" LENGTH="32" NOTNULL="true"/>
+        <FIELD NAME="lang"         TYPE="char" LENGTH="16" NOTNULL="true"/>
+        <FIELD NAME="status"       TYPE="char" LENGTH="24" NOTNULL="true"/>
+        <FIELD NAME="timemodified" TYPE="int"  LENGTH="10" NOTNULL="true"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary"  TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_asset" TYPE="foreign" FIELDS="asset_id" REFTABLE="local_fastpix_asset" REFFIELDS="id"/>
+      </KEYS>
+    </TABLE>
+
+    <TABLE NAME="local_fastpix_upload_session" COMMENT="In-flight upload sessions">
+      <FIELDS>
+        <FIELD NAME="id"          TYPE="int"  LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="userid"      TYPE="int"  LENGTH="10" NOTNULL="true"/>
+        <FIELD NAME="upload_id"   TYPE="char" LENGTH="64" NOTNULL="true"  COMMENT="FastPix Upload ID (transient)"/>
+        <FIELD NAME="upload_url"  TYPE="text"             NOTNULL="true"/>
+        <FIELD NAME="fastpix_id"  TYPE="char" LENGTH="64" NOTNULL="false" COMMENT="Filled when media.created webhook arrives"/>
+        <FIELD NAME="source_url"  TYPE="text"             NOTNULL="false"/>
+        <FIELD NAME="state"       TYPE="char" LENGTH="24" NOTNULL="true" DEFAULT="pending"/>
+        <FIELD NAME="timecreated" TYPE="int"  LENGTH="10" NOTNULL="true"/>
+        <FIELD NAME="expires_at"  TYPE="int"  LENGTH="10" NOTNULL="true"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary"      TYPE="primary" FIELDS="id"/>
+        <KEY NAME="uk_upload_id" TYPE="unique"  FIELDS="upload_id"/>
+        <KEY NAME="fk_user"      TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="idx_expires"      UNIQUE="false" FIELDS="expires_at"/>
+        <INDEX NAME="idx_user_created" UNIQUE="false" FIELDS="userid, timecreated"/>
+      </INDEXES>
+    </TABLE>
+
+    <TABLE NAME="local_fastpix_webhook_event" COMMENT="Append-only webhook ledger">
+      <FIELDS>
+        <FIELD NAME="id"                    TYPE="int"  LENGTH="10"  NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="provider_event_id"     TYPE="char" LENGTH="64"  NOTNULL="true"/>
+        <FIELD NAME="event_type"            TYPE="char" LENGTH="64"  NOTNULL="true"/>
+        <FIELD NAME="event_created_at"      TYPE="int"  LENGTH="10"  NOTNULL="true"/>
+        <FIELD NAME="payload"               TYPE="text"              NOTNULL="true"/>
+        <FIELD NAME="signature"             TYPE="char" LENGTH="128" NOTNULL="true"/>
+        <FIELD NAME="status"                TYPE="char" LENGTH="24"  NOTNULL="true" DEFAULT="received"/>
+        <FIELD NAME="processing_latency_ms" TYPE="int"  LENGTH="10"  NOTNULL="false"/>
+        <FIELD NAME="received_at"           TYPE="int"  LENGTH="10"  NOTNULL="true"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary"           TYPE="primary" FIELDS="id"/>
+        <KEY NAME="uk_provider_event" TYPE="unique"  FIELDS="provider_event_id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="idx_status_received" UNIQUE="false" FIELDS="status, received_at"/>
+      </INDEXES>
+    </TABLE>
+
+
+  </TABLES>
+</XMLDB>

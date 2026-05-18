@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<ruleset name="local_fastpix">
+    <description>Local code style ruleset for local_fastpix. Extends Moodle.</description>
+
+    <rule ref="moodle"/>
+
+    <!--
+        Vendored third-party libraries are excluded from style enforcement.
+        php-jwt is shipped verbatim from firebase/php-jwt; we don't modify
+        upstream code and its style choices are not ours to gate on.
+    -->
+    <exclude-pattern>classes/vendor/*</exclude-pattern>
+</ruleset>

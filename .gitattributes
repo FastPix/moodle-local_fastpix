@@ -1,0 +1,21 @@
+# Files excluded from release archives (moodle-plugin-ci uses `git archive`).
+# Note: .claude/ is fully gitignored, so it never reaches `git archive` either.
+.github/         export-ignore
+.gitattributes   export-ignore
+.gitignore       export-ignore
+build/           export-ignore
+docs/            export-ignore
+phpunit.xml      export-ignore
+tests/           export-ignore
+tools/           export-ignore
+CHANGELOG.md     export-ignore
+STATUS.md        export-ignore
+TROUBLESHOOTING.md export-ignore
+
+# Line-ending normalization.
+*.php            text eol=lf
+*.js             text eol=lf
+*.md             text eol=lf
+*.xml            text eol=lf
+*.json           text eol=lf
+*.sh             text eol=lf

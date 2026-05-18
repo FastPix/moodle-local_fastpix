@@ -1,0 +1,43 @@
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Merge / patch leftovers
+*.orig
+*.rej
+*.bak
+
+# PHPUnit
+.phpunit.result.cache
+phpunit.cache/
+tests/coverage/
+
+# Build artifacts (also export-ignored in .gitattributes)
+build/
+node_modules/
+
+# Runtime / logs
+*.log
+
+# Secrets — never commit
+.env
+.env.*
+
+# Composer is disallowed by rule M12 — vendored libs live in classes/vendor/.
+# Guard against accidental `composer install` at the plugin root.
+/composer.lock
+/vendor/
+
+# Local-only scratch scripts
+/scripts/
+
+# Claude Code dev tooling — agents, rules, prompts, ADR scaffolding.
+# Kept local; not part of the published repo or release archive.
+.claude/

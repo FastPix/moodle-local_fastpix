@@ -1,0 +1,21 @@
+{
+  "$schema": "ADR-014",
+  "exempt_classes": [
+    "local_fastpix\\admin\\setting_webhook_secret",
+    "local_fastpix\\event\\webhook_secret_rotated",
+    "local_fastpix\\exception\\hmac_invalid",
+    "local_fastpix\\exception\\rate_limit_exceeded",
+    "local_fastpix\\external\\test_connection",
+    "local_fastpix\\external\\send_test_event",
+    "local_fastpix\\external\\create_upload_session",
+    "local_fastpix\\external\\create_url_pull_session",
+    "local_fastpix\\external\\get_upload_status",
+    "local_fastpix\\hook\\after_config_callback",
+    "local_fastpix\\privacy\\provider",
+    "local_fastpix\\service\\rate_limiter_service",
+    "local_fastpix\\task\\asset_cleanup",
+    "local_fastpix\\task\\orphan_sweeper",
+    "local_fastpix\\task\\process_webhook",
+    "local_fastpix\\task\\signing_key_rotator"
+  ]
+}

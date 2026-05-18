@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<libraries>
+    <library>
+        <location>classes/vendor/php-jwt</location>
+        <name>firebase/php-jwt</name>
+        <description>Lightweight JWT signing/verification used by the local RS256 signing service.</description>
+        <license>BSD-3-Clause</license>
+        <licenseversion>3</licenseversion>
+        <version>v6.10.0</version>
+    </library>
+</libraries>
