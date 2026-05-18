@@ -66,6 +66,12 @@ class playback_service {
             throw new asset_not_ready($fastpixid . ' (status=' . $asset->status . ')');
         }
 
+        // Lazy-bootstrap the signing keypair on first playback. Idempotent —
+        // no-op if the key is already present. Doing it here (not in
+        // jwt_signing_service) keeps the JWT layer free of credential/gateway
+        // coupling. README documents this behaviour.
+        credential_service::instance()->ensure_signing_key();
+
         $signer = new jwt_signing_service();
         $jwt = $signer->sign_for_playback((string)$asset->playback_id);
         $ttl = $signer->token_ttl_seconds();
