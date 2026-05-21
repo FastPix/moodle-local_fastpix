@@ -45,13 +45,14 @@ class playback_payload {
      * @param ?string $accentcolor Optional accent colour (CSS string).
      * @param bool $defaultshowcaptions Whether captions are on by default.
      * @param string $drmtoken Signed DRM license JWT; empty string for non-DRM assets.
+     * @param string $accesspolicy Asset access policy: public|private|drm.
      */
     public function __construct(
         /** @var string Asset playback ID. */
         public readonly string $playbackid,
-        /** @var string Signed playback JWT. */
+        /** @var string Signed playback JWT. Empty string for public assets, which play tokenless. */
         public readonly string $playbacktoken,
-        /** @var int Unix timestamp when the JWT expires. */
+        /** @var int Unix timestamp when the JWT expires. Equals time() for public (tokenless) assets. */
         public readonly int $expiresatts,
         /** @var bool Whether DRM is required for playback. */
         public readonly bool $drmrequired,
@@ -63,6 +64,9 @@ class playback_payload {
          *  Empty string when asset is not DRM-protected (consumer should not
          *  attach a drm-token attribute to the player in that case). */
         public readonly string $drmtoken = '',
+        /** @var string Asset access policy: public|private|drm. When 'public'
+         *  the consumer must render the player WITHOUT a token attribute. */
+        public readonly string $accesspolicy = 'private',
     ) {
     }
 
@@ -96,6 +100,7 @@ class playback_payload {
             accentcolor:         $accentcolor,
             defaultshowcaptions: $defaultshowcaptions,
             drmtoken:            $drmtoken,
+            accesspolicy:        (string)($asset->access_policy ?? 'private'),
         );
     }
 }

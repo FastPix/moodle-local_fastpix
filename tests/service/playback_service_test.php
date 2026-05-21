@@ -46,6 +46,18 @@ final class playback_service_test extends \advanced_testcase {
 }
 
     /**
+     * Helper: decode a JWT payload segment (base64url-safe).
+     *
+     * @param string $jwt
+     * @return array
+     */
+private function decode_jwt_payload(string $jwt): array {
+    $seg = explode('.', $jwt)[1];
+    $json = base64_decode(strtr($seg, '-_', '+/') . str_repeat('=', (4 - strlen($seg) % 4) % 4));
+    return (array)json_decode($json, true);
+}
+
+    /**
      * Helper: insert asset.
      *
      * @param array $overrides
@@ -78,20 +90,42 @@ private function insert_asset(array $overrides = []): \stdClass {
 }
 
     /**
-     * Test that resolve returns payload for ready asset.
+     * Test that a public asset resolves tokenless with access_policy=public.
      *
      * @covers \local_fastpix\service\playback_service
      */
-public function test_resolve_returns_payload_for_ready_asset(): void {
+public function test_resolve_public_asset_is_tokenless(): void {
     $this->bootstrap_signing_key();
-    $asset = $this->insert_asset();
+    $asset = $this->insert_asset(['access_policy' => 'public']);
 
     $payload = playback_service::resolve($asset->fastpix_id, 42);
 
     $this->assertSame($asset->playback_id, $payload->playbackid);
+    $this->assertSame('public', $payload->accesspolicy);
+    $this->assertSame('', $payload->playbacktoken);
+    $this->assertSame('', $payload->drmtoken);
+    $this->assertFalse($payload->drmrequired);
+}
+
+    /**
+     * Test that a private asset resolves with a signed media token.
+     *
+     * @covers \local_fastpix\service\playback_service
+     */
+public function test_resolve_private_asset_has_signed_token(): void {
+    $this->bootstrap_signing_key();
+    $asset = $this->insert_asset(['access_policy' => 'private']);
+
+    $payload = playback_service::resolve($asset->fastpix_id, 42);
+
+    $this->assertSame($asset->playback_id, $payload->playbackid);
+    $this->assertSame('private', $payload->accesspolicy);
     $this->assertNotEmpty($payload->playbacktoken);
     $this->assertGreaterThan(time(), $payload->expiresatts);
     $this->assertFalse($payload->drmrequired);
+    // Private uses a media: audience, not drm:.
+    $claims = $this->decode_jwt_payload($payload->playbacktoken);
+    $this->assertSame('media:' . $asset->playback_id, $claims['aud']);
 }
 
     /**
@@ -138,5 +172,11 @@ public function test_resolve_sets_drm_required_when_asset_is_drm(): void {
     $asset = $this->insert_asset(['drm_required' => 1, 'access_policy' => 'drm']);
     $payload = playback_service::resolve($asset->fastpix_id, 42);
     $this->assertTrue($payload->drmrequired);
+    $this->assertSame('drm', $payload->accesspolicy);
+    $this->assertNotEmpty($payload->drmtoken);
+    // DRM uses a drm: audience on both the playback token and the drm token.
+    $claims = $this->decode_jwt_payload($payload->playbacktoken);
+    $this->assertSame('drm:' . $asset->playback_id, $claims['aud']);
+    $this->assertSame($payload->playbacktoken, $payload->drmtoken);
 }
 }

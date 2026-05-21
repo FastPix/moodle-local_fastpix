@@ -20,6 +20,10 @@ Moodle 4.5 LTS+.
 - Local RS256 JWT signing for private and DRM-protected playback
   (`media:` and `drm:` audiences). Signing key bootstraps automatically
   and re-mints when API credentials change.
+- Public assets resolve tokenless: `playback_service::resolve()` skips
+  JWT minting for `access_policy=public`, and the playback payload now
+  carries `access_policy` so consumers render public players without a
+  token attribute.
 - Asset metadata cache with dual-key MUC invalidation and read-path
   lazy fetch.
 - Optional DRM, gated on both a feature flag and a configuration ID.

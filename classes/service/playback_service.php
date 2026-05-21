@@ -66,6 +66,14 @@ class playback_service {
             throw new asset_not_ready($fastpixid . ' (status=' . $asset->status . ')');
         }
 
+        // Public assets play without a token. Skip the signing-key bootstrap
+        // and JWT mint entirely — attaching a token to a public playback id is
+        // unnecessary, and the payload's access_policy tells the consumer to
+        // render the player tokenless.
+        if ((string)($asset->access_policy ?? 'private') === 'public') {
+            return playback_payload::from_asset_and_jwt($asset, '', 0, null, false, '');
+        }
+
         // Lazy-bootstrap the signing keypair on first playback. Idempotent —
         // no-op if the key is already present. Doing it here (not in
         // jwt_signing_service) keeps the JWT layer free of credential/gateway
