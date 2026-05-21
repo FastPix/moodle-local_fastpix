@@ -162,6 +162,57 @@ final class credential_service_test extends \advanced_testcase {
         $this->assertSame(self::FAKE_PEM, $decoded);
     }
 
+    // Rotation on credential change.
+
+    /**
+     * Test that a set rotation flag forces a re-mint even when a key
+     * already exists, and the flag is cleared on success.
+     *
+     * @covers \local_fastpix\service\credential_service
+     */
+    public function test_ensure_signing_key_remints_when_rotation_required(): void {
+        set_config('signing_key_id', 'old-workspace-kid', 'local_fastpix');
+        set_config('signing_private_key', base64_encode("old-pem"), 'local_fastpix');
+        set_config('signing_key_rotation_required', '1', 'local_fastpix');
+
+        $mock = $this->createMock(\local_fastpix\api\gateway::class);
+        $mock->expects($this->once())->method('create_signing_key')->willReturn((object)[
+            'id'         => 'kid-test-1',
+            'privateKey' => self::FAKE_PEM,
+            'createdAt'  => '2026-05-21T00:00:00Z',
+        ]);
+
+        $service = credential_service::instance();
+        $service->set_gateway($mock);
+        $service->ensure_signing_key();
+
+        // Re-minted against the new credentials.
+        $this->assertSame('kid-test-1', get_config('local_fastpix', 'signing_key_id'));
+        $this->assertSame(self::FAKE_PEM, base64_decode((string)get_config('local_fastpix', 'signing_private_key'), true));
+        // Flag cleared so subsequent playbacks take the fast path.
+        $this->assertEmpty(get_config('local_fastpix', 'signing_key_rotation_required'));
+    }
+
+    /**
+     * Test that without the rotation flag an existing key is left intact
+     * and the gateway is never called.
+     *
+     * @covers \local_fastpix\service\credential_service
+     */
+    public function test_ensure_signing_key_skips_remint_without_rotation_flag(): void {
+        set_config('signing_key_id', 'existing-kid', 'local_fastpix');
+        set_config('signing_private_key', base64_encode(self::FAKE_PEM), 'local_fastpix');
+
+        $mock = $this->createMock(\local_fastpix\api\gateway::class);
+        $mock->expects($this->never())->method('create_signing_key');
+
+        $service = credential_service::instance();
+        $service->set_gateway($mock);
+        $service->ensure_signing_key();
+
+        $this->assertSame('existing-kid', get_config('local_fastpix', 'signing_key_id'));
+    }
+
     // Redaction canary.
 
     /**

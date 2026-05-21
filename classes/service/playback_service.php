@@ -73,8 +73,21 @@ class playback_service {
         credential_service::instance()->ensure_signing_key();
 
         $signer = new jwt_signing_service();
-        $jwt = $signer->sign_for_playback((string)$asset->playback_id);
         $ttl = $signer->token_ttl_seconds();
+
+        // FastPix DRM contract (verified against the working <fastpix-player>
+        // reference HTML and the official jwt.fastpix.app generator):
+        //   - For DRM assets, the SAME token is used for both the `token`
+        //     and `drm-token` player attributes, and that token uses
+        //     aud="drm:<playback_id>" (NOT "media:<playback_id>").
+        //   - For non-DRM assets, only `token` is set, aud="media:<id>".
+        if (!empty($asset->drm_required)) {
+            $jwt = $signer->sign_for_drm((string)$asset->playback_id);
+            $drmtoken = $jwt;
+        } else {
+            $jwt = $signer->sign_for_playback((string)$asset->playback_id);
+            $drmtoken = '';
+        }
 
         return playback_payload::from_asset_and_jwt(
             $asset,
@@ -82,6 +95,7 @@ class playback_service {
             $ttl,
             null,
             false,
+            $drmtoken,
         );
     }
 }

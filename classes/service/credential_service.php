@@ -109,11 +109,20 @@ public function apisecret(): string {
      * NEVER logs the private key.
      */
 public function ensure_signing_key(): void {
-    // Fast path: already minted, no lock needed.
-    $kid = (string)get_config('local_fastpix', 'signing_key_id');
-    $pem = (string)get_config('local_fastpix', 'signing_private_key');
-    if ($kid !== '' && $pem !== '') {
-        return;
+    // Rotation flag is set by \local_fastpix\admin\setting_credential when an
+    // admin changes apikey or apisecret. If set, we MUST re-mint against the
+    // (now new) credentials — the existing key was registered to the previous
+    // FastPix workspace and produces tokens the new workspace's CDN rejects
+    // with HTTP 401. Forces the lock path below.
+    $rotationrequired = (string)get_config('local_fastpix', 'signing_key_rotation_required') === '1';
+
+    if (!$rotationrequired) {
+        // Fast path: already minted, no lock needed.
+        $kid = (string)get_config('local_fastpix', 'signing_key_id');
+        $pem = (string)get_config('local_fastpix', 'signing_private_key');
+        if ($kid !== '' && $pem !== '') {
+            return;
+        }
     }
 
     // Concurrency: under PHP-FPM, two workers can both pass the check.
@@ -130,11 +139,26 @@ public function ensure_signing_key(): void {
 
     try {
         // Double-check inside the lock: another worker may have just.
-        // Bootstrapped while we were waiting. If so, nothing to do.
-        $kid = (string)get_config('local_fastpix', 'signing_key_id');
-        $pem = (string)get_config('local_fastpix', 'signing_private_key');
-        if ($kid !== '' && $pem !== '') {
-            return;
+        // Bootstrapped while we were waiting. If so, nothing to do — UNLESS
+        // a rotation is required (credential change), in which case we must
+        // proceed to mint a fresh key against the new credentials.
+        $rotationrequired = (string)get_config('local_fastpix', 'signing_key_rotation_required') === '1';
+        if (!$rotationrequired) {
+            $kid = (string)get_config('local_fastpix', 'signing_key_id');
+            $pem = (string)get_config('local_fastpix', 'signing_private_key');
+            if ($kid !== '' && $pem !== '') {
+                return;
+            }
+        } else {
+            // Clear stale key state so the new bootstrap stores fresh values.
+            // The previous-key slots are also cleared — they belonged to the
+            // old workspace and can't verify tokens against the new one.
+            unset_config('signing_key_id', 'local_fastpix');
+            unset_config('signing_private_key', 'local_fastpix');
+            unset_config('signing_key_id_previous', 'local_fastpix');
+            unset_config('signing_private_key_previous', 'local_fastpix');
+            unset_config('signing_key_created_at', 'local_fastpix');
+            unset_config('signing_key_rotated_at', 'local_fastpix');
         }
 
         $response = ($this->gateway ?? \local_fastpix\api\gateway::instance())->create_signing_key();
@@ -166,11 +190,15 @@ public function ensure_signing_key(): void {
         set_config('signing_private_key', $newpemb64, 'local_fastpix');
         set_config('signing_key_created_at', time(), 'local_fastpix');
 
+        // Successful mint clears the rotation flag (idempotent if not set).
+        unset_config('signing_key_rotation_required', 'local_fastpix');
+
         // Log only the kid; the private key never appears in any log line (S2).
         // phpcs:ignore moodle.PHP.ForbiddenFunctions.FoundWithAlternative
         error_log(json_encode([
             'event' => 'credential.signing_key_bootstrapped',
             'id'    => $newkid,
+            'rotation_triggered' => $rotationrequired,
         ]));
     } finally {
         // Release MUST run even if create_signing_key threw, so the.

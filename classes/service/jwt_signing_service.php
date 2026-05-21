@@ -37,7 +37,13 @@ class jwt_signing_service {
     /** @var int Token ttl seconds. */
     private const TOKEN_TTL_SECONDS = 300;
     /** @var string Iss. */
-    private const ISS = 'fastpix.io';
+    // FastPix's own JWT generator (jwt.fastpix.app) issues all tokens —
+    // both manifest (aud=media:..) and DRM (aud=drm:..) — with iss=fastpix.com.
+    // Earlier docs example showed iss=fastpix.io which is empirically still
+    // accepted by the CDN for private playback, but we align with what the
+    // official generator produces today.
+    private const ISS = 'fastpix.com';
+    private const ISS_DRM = 'fastpix.com';
 
     /**
      * Sign for playback.
@@ -60,11 +66,55 @@ class jwt_signing_service {
         }
 
         $now = time();
+        // FastPix's playback JWT format (verified against
+        // https://docs.fastpix.io/docs/secured-playback-with-jwts):
+        //   kid in payload AND header (FastPix's example shows it in payload)
+        //   aud = "media:<playback_id>" (with the "media:" prefix)
+        //   sub = "" (reserved; FastPix's own example leaves it empty)
+        //   iss = "fastpix.com" (see the ISS constant above)
         $payload = [
             'kid' => $kid,
             'aud' => 'media:' . $playbackid,
             'iss' => self::ISS,
-            // Reserved; do NOT fill with userid — would violate S9 (raw userid in JWT payload).
+            'sub' => '',
+            'iat' => $now,
+            'exp' => $now + ($ttl ?? self::TOKEN_TTL_SECONDS),
+        ];
+
+        return JWT::encode($payload, $pem, 'RS256', $kid);
+    }
+
+    /**
+     * Sign for DRM license server (Widevine / FairPlay / PlayReady).
+     *
+     * Verified against a real DRM token captured from FastPix's own
+     * generator. The DRM token differs from the manifest token in one
+     * way: aud = "drm:<playback_id>" instead of "media:<playback_id>".
+     * Issuer (fastpix.com), signing key, and private key are identical
+     * to the manifest token.
+     *
+     * @param string $playbackid The asset's FastPix playback id.
+     * @param ?int $ttl
+     * @return string
+     */
+    public function sign_for_drm(string $playbackid, ?int $ttl = null): string {
+        $kid = (string)get_config('local_fastpix', 'signing_key_id');
+        $privatekeyb64 = (string)get_config('local_fastpix', 'signing_private_key');
+
+        if ($kid === '' || $privatekeyb64 === '') {
+            throw new signing_key_missing('config_empty');
+        }
+
+        $pem = base64_decode($privatekeyb64, true);
+        if ($pem === false) {
+            throw new signing_key_missing('invalid_base64');
+        }
+
+        $now = time();
+        $payload = [
+            'kid' => $kid,
+            'aud' => 'drm:' . $playbackid,
+            'iss' => self::ISS_DRM,
             'sub' => '',
             'iat' => $now,
             'exp' => $now + ($ttl ?? self::TOKEN_TTL_SECONDS),

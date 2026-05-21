@@ -14,7 +14,7 @@ Initial release. The plugin clears every gate for production:
   URL pull → webhook ingestion → asset projection → RS256 JWT mint
   with `aud=media:<playback_id>` (see CHANGELOG `[1.0.0]`).
 
-Maturity: `MATURITY_STABLE`, release `1.0.0`, version `2026051201`.
+Maturity: `MATURITY_STABLE`, release `1.0.0`, version `2026052100`.
 
 ## What works
 

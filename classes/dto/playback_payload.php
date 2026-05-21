@@ -44,6 +44,7 @@ class playback_payload {
      * @param bool $drmrequired Whether DRM is required for playback.
      * @param ?string $accentcolor Optional accent colour (CSS string).
      * @param bool $defaultshowcaptions Whether captions are on by default.
+     * @param string $drmtoken Signed DRM license JWT; empty string for non-DRM assets.
      */
     public function __construct(
         /** @var string Asset playback ID. */
@@ -58,6 +59,10 @@ class playback_payload {
         public readonly ?string $accentcolor,
         /** @var bool Whether captions are on by default. */
         public readonly bool $defaultshowcaptions,
+        /** @var string Signed DRM license JWT (Widevine / FairPlay / PlayReady).
+         *  Empty string when asset is not DRM-protected (consumer should not
+         *  attach a drm-token attribute to the player in that case). */
+        public readonly string $drmtoken = '',
     ) {
     }
 
@@ -72,6 +77,7 @@ class playback_payload {
      * @param int $ttlseconds JWT TTL in seconds.
      * @param ?string $accentcolor Optional brand colour (CSS string) from the caller.
      * @param bool $defaultshowcaptions Whether captions are on by default for this activity.
+     * @param string $drmtoken Signed DRM license JWT; empty for non-DRM assets.
      * @return self
      */
     public static function from_asset_and_jwt(
@@ -80,6 +86,7 @@ class playback_payload {
         int $ttlseconds,
         ?string $accentcolor = null,
         bool $defaultshowcaptions = false,
+        string $drmtoken = '',
     ): self {
         return new self(
             playbackid:          (string)$asset->playback_id,
@@ -88,6 +95,7 @@ class playback_payload {
             drmrequired:         (bool)($asset->drm_required ?? false),
             accentcolor:         $accentcolor,
             defaultshowcaptions: $defaultshowcaptions,
+            drmtoken:            $drmtoken,
         );
     }
 }

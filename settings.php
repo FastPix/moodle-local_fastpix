@@ -169,7 +169,7 @@ $settings->add(new admin_setting_heading(
     '',
 ));
 
-$settings->add(new admin_setting_configtext(
+$settings->add(new \local_fastpix\admin\setting_credential(
     'local_fastpix/apikey',
     new lang_string('setting_apikey', 'local_fastpix'),
     new lang_string('setting_apikey_desc', 'local_fastpix'),
@@ -184,7 +184,7 @@ $settings->add(new admin_setting_configtext(
 // The secret is stored as plaintext in mdl_config_plugins regardless.
 // Of the widget (rule S8 — already disclosed in README.md), so the.
 // Visual mask was cosmetic. The text input is always editable.
-$settings->add(new admin_setting_configtext(
+$settings->add(new \local_fastpix\admin\setting_credential(
     'local_fastpix/apisecret',
     new lang_string('setting_apisecret', 'local_fastpix'),
     new lang_string('setting_apisecret_desc', 'local_fastpix'),

@@ -4,6 +4,30 @@ All notable changes to `local_fastpix` are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.0] — 2026-05-21 (build 2026052100)
+
+Consolidated post-tag fixes from production integration testing. Ships
+under the same `1.0.0` release label; internal `$plugin->version`
+advanced to `2026052100` for Moodle's upgrade machinery.
+
+### Added
+- `jwt_signing_service::sign_for_drm()` — mints DRM license tokens
+  (`aud=drm:<playback_id>`), wired into `playback_service` for
+  DRM-gated assets. Same RS256 key as manifest tokens.
+- Automatic signing-key rotation on credential change:
+  `\local_fastpix\admin\setting_credential` flags a rotation when an
+  admin edits the API key or secret, and
+  `credential_service::ensure_signing_key()` re-mints against the new
+  workspace. Prevents stale keys producing CDN 401s after a workspace
+  switch.
+
+### Changed
+- JWT issuer aligned to `fastpix.com` (manifest and DRM) to match the
+  tokens FastPix's own generator produces.
+- Gateway sends `X-Client-Type` on resumable upload-URL requests.
+- Signing key now bootstraps lazily on first playback as well as at
+  credential save.
+
 ## [1.0.0] — 2026-05-12
 
 End-to-end production-verified against the FastPix sandbox. Maturity

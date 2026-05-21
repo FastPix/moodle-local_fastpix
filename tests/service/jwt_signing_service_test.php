@@ -213,6 +213,71 @@ final class jwt_signing_service_test extends \advanced_testcase {
         $this->assertSame(1, $verified);
     }
 
+    // DRM license token.
+
+    /**
+     * Test that sign for drm returns a three-segment JWT.
+     *
+     * @covers \local_fastpix\service\jwt_signing_service
+     */
+    public function test_sign_for_drm_returns_valid_three_segment_jwt(): void {
+        $jwt = (new jwt_signing_service())->sign_for_drm('pb-drm');
+        $this->assertCount(3, explode('.', $jwt));
+    }
+
+    /**
+     * Test that sign for drm payload uses aud="drm:<playback_id>" and iss="fastpix.com".
+     *
+     * Captured from a real FastPix-generated DRM token: the DRM aud uses
+     * the asset's playback_id (same identifier as the manifest token uses)
+     * but with a "drm:" prefix instead of "media:", and iss is "fastpix.com"
+     * not "fastpix.io".
+     *
+     * @covers \local_fastpix\service\jwt_signing_service
+     */
+    public function test_sign_for_drm_payload_has_correct_aud_format(): void {
+        $jwt = (new jwt_signing_service())->sign_for_drm('pb-drm');
+        [, $payload] = $this->decode_segments($jwt);
+        $this->assertSame('drm:pb-drm', $payload['aud']);
+        $this->assertSame('fastpix.com', $payload['iss']);
+        $this->assertSame('', $payload['sub']);
+    }
+
+    /**
+     * Test that sign for drm uses the same kid as sign for playback.
+     *
+     * @covers \local_fastpix\service\jwt_signing_service
+     */
+    public function test_sign_for_drm_uses_same_kid_as_playback(): void {
+        $signer = new jwt_signing_service();
+        [, $playbackpayload] = $this->decode_segments($signer->sign_for_playback('pb-1'));
+        [, $drmpayload] = $this->decode_segments($signer->sign_for_drm('pb-1'));
+        $this->assertSame($playbackpayload['kid'], $drmpayload['kid']);
+    }
+
+    /**
+     * Test that sign for drm signature verifies with the matching public key.
+     *
+     * @covers \local_fastpix\service\jwt_signing_service
+     */
+    public function test_sign_for_drm_signature_verifies_with_public_key(): void {
+        $jwt = (new jwt_signing_service())->sign_for_drm('pb-drm-verify');
+        $decoded = JWT::decode($jwt, new Key($this->publicpem, 'RS256'));
+        $this->assertSame('drm:pb-drm-verify', $decoded->aud);
+        $this->assertSame('fastpix.com', $decoded->iss);
+    }
+
+    /**
+     * Test that sign for drm with missing kid throws signing_key_missing.
+     *
+     * @covers \local_fastpix\service\jwt_signing_service
+     */
+    public function test_sign_for_drm_with_missing_kid_throws_signing_key_missing(): void {
+        set_config('signing_key_id', '', 'local_fastpix');
+        $this->expectException(\local_fastpix\exception\signing_key_missing::class);
+        (new jwt_signing_service())->sign_for_drm('pb-1');
+    }
+
     // Constants.
 
     /**
