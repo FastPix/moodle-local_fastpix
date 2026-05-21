@@ -1,171 +1,210 @@
-# FastPix for Moodle
+# local_fastpix
 
-Add video uploads and playback to Moodle using
-[FastPix](https://www.fastpix.io). This is the **core plugin** that
-the FastPix activity, filter, and editor plugins all depend on. It
-handles uploads, webhooks, playback tokens, and admin settings.
+A Moodle local plugin that connects your Moodle site to
+[FastPix](https://www.fastpix.io) video hosting. It provides the shared
+HTTP gateway, asset cache, webhook ingestion, and JWT signing used by
+the FastPix activity module, filter, and editor plugins.
 
-| | |
+Use this plugin if you administer a Moodle site and want to add FastPix
+video support. On its own, it ships only an admin settings page, a
+webhook endpoint, and a health probe — there's no UI for students or
+teachers until you also install the companion plugins.
+
+| Property | Value |
 |---|---|
-| Version | 1.0.0 (stable) |
-| Needs | Moodle 4.5+ · PHP 8.1+ |
-| Licence | GPL v3 or later |
+| Release | 1.0.0 |
+| Maturity | Stable |
+| Requires | Moodle 4.5 LTS or later, PHP 8.1+ |
+| License | [GNU GPL v3 or later](https://www.gnu.org/licenses/gpl-3.0.html) |
+| Source | [moodle-local_fastpix on GitHub](https://github.com/FastPix/moodle-local_fastpix) |
 
----
+## Contents
 
-## What you need before you install
+- [Features](#features)
+- [Requirements](#requirements)
+- [Install](#install)
+- [Configure](#configure)
+  - [API credentials](#api-credentials)
+  - [Webhook](#webhook)
+  - [DRM (optional)](#drm-optional)
+  - [Health endpoint](#health-endpoint)
+- [Privacy](#privacy)
+- [Permissions](#permissions)
+- [Support](#support)
+- [License](#license)
 
-| Thing | Why |
-|---|---|
-| **Moodle 4.5 LTS or newer** | Older versions don't have the APIs we use |
-| **PHP 8.1, 8.2, or 8.3** | Moodle 4.5+ requires 8.1 minimum |
-| **MySQL 8.0+ / MariaDB 10.6+ / PostgreSQL 13+** | Any database Moodle itself supports |
-| **A FastPix account** | API key + secret + a webhook destination |
-| **Moodle cron running every minute** | This is how webhook events get processed (more below) |
-| **A public URL** (only for production) | FastPix needs to reach your Moodle to send webhooks |
+## Features
 
-PHP extensions: `openssl`, `curl`, `json`, `hash`, `mbstring`. These
-come with any normal Moodle install.
+- Direct upload and URL-pull workflows for video assets.
+- Webhook ingestion with idempotency, per-asset ordering, and dual-secret
+  rotation over a 30-minute window.
+- Local RS256 JWT signing for private and DRM-protected playback.
+- Optional DRM, controlled by a feature flag and a configuration ID. If
+  you set only one, DRM stays disabled.
+- Server-side request forgery (SSRF) protection on URL-pull sources.
+- Full Moodle Privacy API support, including per-asset deletion under
+  GDPR.
+- Health check endpoint for monitoring.
 
-No Composer dependencies. We ship `firebase/php-jwt` v6.10.0 already
-bundled in `classes/vendor/`.
+## Requirements
 
-> **Note on MySQL versions:** This plugin works with MySQL 8.0+. If
-> Moodle complains *"MySQL 8.4 is required and you are running 8.0.x"*,
-> that's a **Moodle 5.1+ core requirement**, not ours. On Moodle 4.5
-> LTS, MySQL 8.0 (the version MAMP ships) works perfectly. For test
-> setups, we recommend **Moodle 4.5 LTS** — it's the most representative
-> production environment and avoids this version conflict.
+Before you install, make sure your environment meets these
+requirements:
 
----
+- Moodle 4.5 LTS or later.
+- PHP 8.1 or later (tested through PHP 8.3).
+- A FastPix account with API credentials and a webhook signing secret.
+- A shared Moodle Universal Cache (MUC) backend such as Redis,
+  Memcached, or — on a single-server install with one PHP-FPM pool —
+  the file store. The gateway circuit breaker and rate limiter rely on
+  shared cache state, so they need a backend that all PHP workers can
+  reach.
 
-## Install (3 steps)
+The plugin bundles one third-party library, `firebase/php-jwt` v6.10.0
+(BSD-3-Clause), under `classes/vendor/php-jwt/`. There are no Composer
+dependencies at runtime. For details, see `thirdpartylibs.xml`.
 
-### Step 1: Drop the plugin into Moodle
+## Install
 
-Either upload the ZIP via **Site admin → Plugins → Install plugins**,
-or from a terminal:
+Choose one of the following methods.
+
+### Install from the Moodle Plugins Directory
+
+1. Sign in to your Moodle site as an administrator.
+2. Go to **Site administration > Plugins > Install plugins**.
+3. Search for **FastPix** and follow the prompts.
+
+### Install from a ZIP file
+
+1. Download the latest release from the
+   [GitHub Releases page](https://github.com/FastPix/moodle-local_fastpix/releases).
+2. Sign in to your Moodle site as an administrator.
+3. Go to **Site administration > Plugins > Install plugins** and upload
+   the ZIP file.
+
+### Install from source
+
+Run the following commands on your Moodle server:
 
 ```bash
 cd /path/to/moodle
-git clone https://github.com/tharunbudidha27/local-plugin.git local/fastpix
+git clone https://github.com/FastPix/moodle-local_fastpix.git local/fastpix
 php admin/cli/upgrade.php --non-interactive
 ```
 
-### Step 2: Add your FastPix credentials
+When the install hook runs, the plugin generates a webhook signing
+secret, a per-site user-hash salt, and the default feature flags (DRM
+off). The RSA signing key for playback JWTs is created the first time
+it's needed, after you save your API credentials.
 
-Go to **Site admin → Server → FastPix** and fill in:
+## Configure
 
-1. **API key** and **API secret** — from your FastPix dashboard
-   (Settings → API Keys).
-2. **Webhook URL** — *don't type anything*. Moodle shows you the URL
-   it expects; click the **Copy** button next to it.
-3. Open the **FastPix dashboard → Webhooks**, paste that URL as a new
-   destination, and **subscribe to these events**:
+To open the settings page, go to **Site administration > Server >
+FastPix**. You need the `local/fastpix:configurecredentials`
+capability, which the Manager role has by default.
+
+### API credentials
+
+1. In your FastPix dashboard, go to **Settings > API Keys**.
+2. Copy the API key and API secret.
+3. In Moodle, paste both values into the FastPix settings page.
+
+Moodle stores the secret in the `config_plugins` table using the
+standard `admin_setting_configpasswordunmask` field. The settings page
+masks the value in the browser, but the database doesn't encrypt it.
+Protect your database backups accordingly.
+
+### Webhook
+
+To receive playback and processing events from FastPix:
+
+1. On the Moodle settings page, copy the webhook URL. It looks like
+   `https://your.moodle.example/local/fastpix/webhook.php`.
+2. In the FastPix dashboard, add a new webhook destination and paste
+   the URL.
+3. Get the signing secret that Moodle generated at install time by
+   running this command from your Moodle root:
+
+   ```bash
+   php -r 'define("CLI_SCRIPT", true); require "config.php";
+     echo get_config("local_fastpix", "webhook_secret_current"), "\n";'
+   ```
+
+4. Paste the secret into the FastPix webhook configuration.
+5. Subscribe to these events at minimum:
    - `video.media.created`
    - `video.media.ready`
    - `video.media.updated`
    - `video.media.failed`
    - `video.media.deleted`
-   - `video.upload.media_created`
-4. **Copy the signing secret** FastPix gives you for that destination,
-   come back to Moodle, paste it into the **Webhook signing secret**
-   field, and save.
 
-That's it for the manual setup. The plugin handles everything else
-automatically (signing keys, key registration, etc.).
+When you rotate the secret later, the verifier accepts the previous
+value for 30 minutes. This gives you time to update both sides without
+losing webhook deliveries.
 
-### Step 3: Make sure Moodle cron is running
+### DRM (optional)
 
-This is non-optional. Webhooks arrive, get stored, and then a
-background job updates the database — but the background job only
-runs when Moodle cron runs. Without cron, videos stay in
-"Processing" forever.
+DRM is disabled by default. To turn it on:
 
-**Linux server:** add this to `/etc/cron.d/moodle`:
+1. On the Moodle settings page, select **Enable DRM**.
+2. Paste your FastPix **DRM Configuration ID** into the matching field.
+
+You must set both. If either is missing, DRM stays disabled.
+
+### Health endpoint
+
+The plugin exposes a public health check at:
+
 ```
-* * * * * www-data /usr/bin/php /var/www/moodle/admin/cli/cron.php > /dev/null 2>&1
-```
-
-**Docker:** make sure your `docker-compose.yml` has a cron sidecar
-running `while true; do php admin/cli/cron.php; sleep 60; done`.
-
-**MAMP (Mac local dev):** open a Terminal and leave this running:
-```bash
-while true; do
-  /Applications/MAMP/bin/php/php8.2.x/bin/php \
-    /Applications/MAMP/htdocs/moodle/admin/cli/cron.php
-  sleep 30
-done
+https://your.moodle.example/local/fastpix/health.php
 ```
 
-**Managed Moodle hosts** (Bitnami, MoodleCloud, Catalyst): cron is
-already running for you. Verify at **Site admin → Server → Tasks →
-Cron** — "Last run" should be less than 1 minute ago.
+The endpoint requires no authentication and is rate-limited to 30
+requests per minute per IP address. It returns JSON with these fields:
 
----
+- `status`
+- `fastpix_reachable`
+- `latency_ms`
+- `timestamp`
 
-## Test the install
+Response codes:
 
-Upload a short test video through any FastPix-enabled activity.
-Within about a minute, it should show as "Ready" and play in the
-browser. If it doesn't, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+- `200` — service is healthy.
+- `503` — upstream failure.
+- `429` — rate limit exceeded.
 
-You can also check the health endpoint:
-```
-curl https://your-moodle.com/local/fastpix/health.php
-```
-Expect HTTP 200 and a JSON body with `"status": "ok"`.
+The endpoint works with monitoring tools such as Pingdom, UptimeRobot,
+or Prometheus blackbox exporter.
 
----
+## Privacy
 
-## What the plugin does
+This plugin includes a full Moodle Privacy API provider. The plugin
+doesn't send raw user IDs to FastPix; instead, it sends a site-specific
+HMAC value called `user_hash`. The webhook ledger is automatically
+pruned after 90 days, and soft-deleted assets are permanently removed
+after a 7-day grace window.
 
-- **Video uploads** — direct browser upload or URL pull, with a
-  60-second dedup window.
-- **Webhook ingestion** — verified, idempotent, ordered per asset.
-- **JWT signing** — RS256 tokens for private/DRM playback. The key
-  is auto-generated on first use and registered with FastPix
-  automatically. No manual key paste.
-- **DRM support** — optional, off by default. Enable in admin.
-- **Privacy** — full GDPR support via Moodle's Privacy API. Raw user
-  IDs are never sent to FastPix (they're HMAC-hashed first).
-- **Health endpoint** — `/local/fastpix/health.php` for uptime
-  monitoring.
-
----
+For full details, see **Site administration > Users > Privacy and
+policies > Data registry** in your Moodle site.
 
 ## Permissions
 
-| Capability | Default role |
-|---|---|
-| `local/fastpix:configurecredentials` | Manager only |
+| Capability                            | Default role |
+|---------------------------------------|--------------|
+| `local/fastpix:configurecredentials`  | Manager      |
 
-That's the only capability this plugin defines. The upload-media
-capability lives in the `mod_fastpix` activity plugin.
-
----
-
-## Common gotchas (quick reference)
-
-| Problem | Fix |
-|---|---|
-| Video stuck on "Processing" / "Preparing" | Cron isn't running. See Step 3 above. |
-| Webhook returns 401 in FastPix dashboard | The signing secret in Moodle doesn't match. Re-paste it. |
-| Webhook returns 400 in FastPix dashboard | Upgrade to plugin version 2026051201+ (validation-ping fix). |
-| Private videos don't play, public ones do | Signing key not bootstrapped. See TROUBLESHOOTING §4. |
-| Can't reach Moodle from FastPix (local dev) | Use `ngrok http 8000` and paste the public URL into FastPix. |
-
-For anything more specific, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
-
----
+The related activity-side capability `mod/fastpix:uploadmedia` is
+defined by the `mod_fastpix` plugin, not this one.
 
 ## Support
 
-- **Issues:** <https://github.com/tharunbudidha27/local-plugin/issues>
-- **Changelog:** [CHANGELOG.md](CHANGELOG.md)
-- **Troubleshooting:** [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+- File an issue on the
+  [issue tracker](https://github.com/FastPix/moodle-local_fastpix/issues).
+- Read the [changelog](CHANGELOG.md) for release notes.
+- For contribution guidelines, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-## Licence
+## License
 
-Copyright © 2026 FastPix Inc. GPL v3.0 or later. See `LICENSE`.
+Copyright © 2026 FastPix Inc. Released under the GNU GPL v3.0 or
+later. For the full license text, see [`LICENSE`](LICENSE).
+ 
