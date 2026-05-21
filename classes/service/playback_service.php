@@ -75,12 +75,9 @@ class playback_service {
         $signer = new jwt_signing_service();
         $ttl = $signer->token_ttl_seconds();
 
-        // FastPix DRM contract (verified against the working <fastpix-player>
-        // reference HTML and the official jwt.fastpix.app generator):
-        //   - For DRM assets, the SAME token is used for both the `token`
-        //     and `drm-token` player attributes, and that token uses
-        //     aud="drm:<playback_id>" (NOT "media:<playback_id>").
-        //   - For non-DRM assets, only `token` is set, aud="media:<id>".
+        // FastPix DRM contract: for DRM assets the same token serves both the
+        // token and drm-token player attributes and uses aud="drm:<id>"; for
+        // non-DRM assets only token is set and it uses aud="media:<id>".
         if (!empty($asset->drm_required)) {
             $jwt = $signer->sign_for_drm((string)$asset->playback_id);
             $drmtoken = $jwt;

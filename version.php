@@ -24,11 +24,9 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_fastpix';
-// $plugin->version is monotonically increasing for Moodle's upgrade machinery
-// — it cannot decrease without breaking existing installs. $plugin->release
-// is the user-visible label. We ship a single consolidated "1.0.0" production
-// release that bundles all the post-tag fixes (DRM token shape, auto-rotation
-// on credential change, lazy signing-key bootstrap, validation-ping handler).
+// Monotonic upgrade version for Moodle's upgrade machinery; it must never
+// decrease. The user-visible label is $plugin->release below. A single
+// consolidated 1.0.0 release bundles all fixes.
 $plugin->version = 2026052100;          // Internal upgrade-version (monotonic).
 $plugin->requires  = 2024100100;        // Moodle 4.5 LTS.
 $plugin->maturity  = MATURITY_STABLE;

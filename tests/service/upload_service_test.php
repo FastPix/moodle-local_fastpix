@@ -838,7 +838,7 @@ final class upload_service_test extends \advanced_testcase {
      * @covers \local_fastpix\service\upload_service::create_file_upload_session
      */
     public function test_create_file_upload_session_does_not_buffer_bytes_for_large_file(): void {
-        $fivegb = 5 * 1024 * 1024 * 1024; // 5,368,709,120 bytes.
+        $fivegb = 5 * 1024 * 1024 * 1024; // Five gibibytes.
 
         $capturedargs = null;
         $mock = $this->createMock(\local_fastpix\api\gateway::class);

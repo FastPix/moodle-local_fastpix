@@ -36,13 +36,9 @@ use local_fastpix\exception\signing_key_missing;
 class jwt_signing_service {
     /** @var int Token ttl seconds. */
     private const TOKEN_TTL_SECONDS = 300;
-    /** @var string Iss. */
-    // FastPix's own JWT generator (jwt.fastpix.app) issues all tokens —
-    // both manifest (aud=media:..) and DRM (aud=drm:..) — with iss=fastpix.com.
-    // Earlier docs example showed iss=fastpix.io which is empirically still
-    // accepted by the CDN for private playback, but we align with what the
-    // official generator produces today.
+    /** @var string JWT issuer for manifest playback tokens. Matches FastPix's own generator. */
     private const ISS = 'fastpix.com';
+    /** @var string JWT issuer for DRM license tokens. Same as the manifest issuer. */
     private const ISS_DRM = 'fastpix.com';
 
     /**
@@ -66,12 +62,9 @@ class jwt_signing_service {
         }
 
         $now = time();
-        // FastPix's playback JWT format (verified against
-        // https://docs.fastpix.io/docs/secured-playback-with-jwts):
-        //   kid in payload AND header (FastPix's example shows it in payload)
-        //   aud = "media:<playback_id>" (with the "media:" prefix)
-        //   sub = "" (reserved; FastPix's own example leaves it empty)
-        //   iss = "fastpix.com" (see the ISS constant above)
+        // FastPix playback JWT format, verified against the secured-playback
+        // docs: kid in both payload and header, aud is "media:<playback_id>",
+        // sub is empty (reserved), and iss is fastpix.com (the ISS constant).
         $payload = [
             'kid' => $kid,
             'aud' => 'media:' . $playbackid,

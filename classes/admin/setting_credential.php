@@ -34,6 +34,9 @@
  */
 namespace local_fastpix\admin;
 
+/**
+ * Admin text setting that triggers signing-key rotation when its value changes.
+ */
 class setting_credential extends \admin_setting_configtext {
     /** @var bool Module-scoped guard: rotation shutdown fn registered once per request. */
     private static bool $rotationscheduled = false;
