@@ -335,6 +335,54 @@ final class upload_service_test extends \advanced_testcase {
         $this->assertSame('cfg-1', $captured['drm_config_id']);
     }
 
+    /**
+     * Edge case: caller passes accesspolicy='drm' WITHOUT drmrequired=true.
+     * The effective policy is still 'drm', so the W12 double-gate must fire
+     * when DRM is not configured. Regression test for the gate previously
+     * keying off the raw $drmrequired flag instead of the effective policy.
+     *
+     * @covers \local_fastpix\service\upload_service
+     */
+    public function test_create_file_upload_session_drm_via_caller_policy_with_drm_disabled_throws(): void {
+        set_config('feature_drm_enabled', 0, 'local_fastpix');
+        set_config('drm_configuration_id', '', 'local_fastpix');
+
+        $mock = $this->createMock(\local_fastpix\api\gateway::class);
+        $mock->expects($this->never())->method('input_video_direct_upload');
+        $this->inject_gateway_mock($mock);
+
+        $this->expectException(\local_fastpix\exception\drm_not_configured::class);
+        upload_service::instance()->create_file_upload_session(
+            42,
+            ['filename' => 'a.mp4', 'size' => 100],
+            drmrequired: false,
+            accesspolicy: 'drm',
+        );
+    }
+
+    /**
+     * Edge case: admin default_access_policy='drm' while DRM is not configured.
+     * Every upload then resolves to 'drm' with drmrequired=false; the gate must
+     * still reject rather than send accessPolicy=drm with no drmConfigurationId.
+     *
+     * @covers \local_fastpix\service\upload_service
+     */
+    public function test_create_file_upload_session_drm_via_default_config_with_drm_disabled_throws(): void {
+        set_config('feature_drm_enabled', 0, 'local_fastpix');
+        set_config('drm_configuration_id', '', 'local_fastpix');
+        set_config('default_access_policy', 'drm', 'local_fastpix');
+
+        $mock = $this->createMock(\local_fastpix\api\gateway::class);
+        $mock->expects($this->never())->method('input_video_direct_upload');
+        $this->inject_gateway_mock($mock);
+
+        $this->expectException(\local_fastpix\exception\drm_not_configured::class);
+        upload_service::instance()->create_file_upload_session(
+            42,
+            ['filename' => 'a.mp4', 'size' => 100],
+        );
+    }
+
     // D. URL pull SSRF.
 
     /**

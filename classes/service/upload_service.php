@@ -76,7 +76,11 @@ public function create_file_upload_session(
     ?string $accesspolicy = null,
     ?string $maxresolution = null,
 ): \stdClass {
-    $this->assert_drm_gate($drmrequired);
+    // Gate on the EFFECTIVE access policy, not the raw $drmrequired flag: the
+    // policy can resolve to 'drm' via the caller's value or the admin
+    // default_access_policy config without $drmrequired being set. Either way,
+    // a 'drm' upload requires the W12 double-gate (drm_enabled()).
+    $this->assert_drm_gate($this->resolve_access_policy($drmrequired, $accesspolicy));
 
     // Dedup window: same (userid, filename, size) within 60s returns the.
     // Existing session.
@@ -131,7 +135,11 @@ public function create_url_pull_session(
 ): \stdClass {
     // SSRF guard runs BEFORE any gateway call (rule S6).
     $this->assert_ssrf_safe($sourceurl);
-    $this->assert_drm_gate($drmrequired);
+    // Gate on the EFFECTIVE access policy, not the raw $drmrequired flag: the
+    // policy can resolve to 'drm' via the caller's value or the admin
+    // default_access_policy config without $drmrequired being set. Either way,
+    // a 'drm' upload requires the W12 double-gate (drm_enabled()).
+    $this->assert_drm_gate($this->resolve_access_policy($drmrequired, $accesspolicy));
 
     // Dedup window: same (userid, source_url) within 60s returns the.
     // Existing session row. Mirrors the file-upload dedup contract (W11).
@@ -308,12 +316,16 @@ private function resolve_max_resolution(?string $callervalue): string {
 }
 
     /**
-     * Assert drm gate.
+     * Assert the W12 double-gate for any upload whose effective access policy
+     * is 'drm': both feature_drm_enabled AND a non-empty drm_configuration_id
+     * must be set (feature_flag_service::drm_enabled()). Non-'drm' policies are
+     * always allowed.
      *
-     * @param bool $drmrequired
+     * @param string $accesspolicy The resolved (effective) access policy.
+     * @throws drm_not_configured when policy is 'drm' but DRM is not configured.
      */
-private function assert_drm_gate(bool $drmrequired): void {
-    if ($drmrequired && !feature_flag_service::instance()->drm_enabled()) {
+private function assert_drm_gate(string $accesspolicy): void {
+    if ($accesspolicy === 'drm' && !feature_flag_service::instance()->drm_enabled()) {
         throw new drm_not_configured('drm_required_but_not_configured');
     }
 }

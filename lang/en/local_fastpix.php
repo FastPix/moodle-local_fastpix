@@ -64,10 +64,12 @@ $string['setting_apikey_desc']        = 'Enter the FastPix API Key from your Fas
 $string['setting_apisecret']          = 'API Secret';
 $string['setting_apisecret_desc']     = 'Enter the API Secret associated with the API Key above. This value is hidden in the UI but stored in Moodle configuration settings. Restrict database and backup access appropriately.';
 $string['setting_drm_enabled']        = 'Enable DRM';
-$string['setting_drm_enabled_desc']   = 'Enable DRM-protected playback for supported uploads.Requires a valid DRM Configuration ID in FastPix.';
+$string['setting_drm_enabled_desc']   = 'Enable DRM-protected playback for supported uploads. Requires a valid <strong>DRM Configuration ID</strong> below.';
 $string['setting_drm_config_id']      = 'DRM Configuration ID';
-$string['setting_drm_config_id_desc'] = 'The DRM configuration ID from FastPix. Required when DRM is enabled.';
+$string['setting_drm_config_id_desc'] = 'The DRM configuration ID from your FastPix Dashboard. <strong>Required when DRM is enabled.</strong>';
 $string['setting_webhook_url']        = 'Webhook URL';
+$string['setting_webhook_url_help']      = 'Paste this URL into the {$a} to start receiving events. Moodle verifies the signature against the secret below.';
+$string['setting_webhook_url_help_link'] = 'FastPix Dashboard → Webhooks';
 $string['button_copy_webhook_url']      = 'Copy';
 $string['button_copy_webhook_url_done'] = 'Copied!';
 
@@ -94,10 +96,20 @@ $string['event_webhook_secret_rotated']   = 'Webhook signing secret rotated';
 $string['asset_not_ready'] = 'Asset exists but is not yet ready for playback: {$a}';
 
 $string['settings_credentials']             = 'API credentials';
+$string['settings_credentials_desc']        = 'Used by every server-to-server call to FastPix.';
+$string['settings_credentials_link']        = 'Find your keys in the FastPix Dashboard';
+$string['ui_btn_copy']                      = 'Copy';
+$string['ui_btn_copied']                    = 'Copied';
+$string['ui_toggle_enabled']                = 'Enabled';
+$string['ui_toggle_disabled']               = 'Disabled';
 $string['settings_features']                = 'Feature flags';
+$string['settings_features_desc']           = 'Toggle optional FastPix capabilities. Some require additional configuration in the FastPix Dashboard.';
+$string['settings_features_link']           = 'Set up DRM in the FastPix Dashboard';
 $string['settings_webhooks']                = 'Webhooks';
 $string['settings_webhooks_desc']           = 'FastPix sends event notifications to the webhook URL below for upload, processing, and playback-related updates.';
 $string['setting_section_upload_defaults']  = 'Upload defaults';
+$string['setting_section_upload_defaults_desc'] = 'Applied to every newly-ingested video.';
+$string['setting_section_upload_defaults_link'] = 'Configure playback access &amp; security';
 $string['setting_default_access_policy']    = 'Default access policy';
 $string['setting_default_access_policy_desc'] = 'Default playback access policy applied to newly uploaded videos.';
 $string['setting_max_resolution']           = 'Default maximum resolution';
@@ -108,7 +120,7 @@ $string['setting_webhook_secret_too_short'] = 'Webhook secret must be at least 3
 $string['webhook_secret_not_configured_notice'] = 'Webhook signing secret is not configured. FastPix events will be rejected until you paste the secret from the FastPix dashboard below.';
 
 $string['button_test_connection']      = 'Test connection';
-$string['button_test_connection_desc'] = 'Verifies that Moodle can successfully authenticate with FastPix using the configured credentials.';
+$string['button_test_connection_desc'] = 'Verifies that Moodle can authenticate with FastPix using the configured credentials.';
 $string['button_send_test_event']      = 'Send test event';
 $string['button_send_test_event_desc'] = 'Sends a test webhook event to verify that Moodle can receive and process FastPix events correctly.';
 
