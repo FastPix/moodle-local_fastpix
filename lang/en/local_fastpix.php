@@ -100,6 +100,7 @@ $string['settings_credentials_desc']        = 'Used by every server-to-server ca
 $string['settings_credentials_link']        = 'Find your keys in the FastPix Dashboard';
 $string['ui_btn_copy']                      = 'Copy';
 $string['ui_btn_copied']                    = 'Copied';
+$string['ui_more_info']                     = 'More information';
 $string['ui_toggle_enabled']                = 'Enabled';
 $string['ui_toggle_disabled']               = 'Disabled';
 $string['settings_features']                = 'Feature flags';
@@ -123,6 +124,7 @@ $string['button_test_connection']      = 'Test connection';
 $string['button_test_connection_desc'] = 'Verifies that Moodle can authenticate with FastPix using the configured credentials.';
 $string['button_send_test_event']      = 'Send test event';
 $string['button_send_test_event_desc'] = 'Sends a test webhook event to verify that Moodle can receive and process FastPix events correctly.';
+$string['settings_save_first_notice'] = 'Save your changes before using <strong>Test connection</strong> or <strong>Send test event</strong>. Those buttons use the saved settings — not the values currently typed into the fields above.';
 
 $string['test_connection_running'] = 'Probing…';
 $string['test_connection_success'] = 'Connected (latency {$a} ms)';

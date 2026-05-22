@@ -38,6 +38,12 @@
 
 defined('MOODLE_INTERNAL') || die();
 
+// This settings page embeds its admin UI as inline CSS, JS and SVG icons (the
+// $fpcardstyle / $fpcardscript heredocs and the icon/logo strings below). Those
+// lines legitimately exceed the 132/180-char limits and cannot be wrapped
+// without breaking the CSS/JS, so the line-length sniff is disabled file-wide.
+// phpcs:disable moodle.Files.LineLength.MaxExceeded, moodle.Files.LineLength.TooLong
+
 if (!$hassiteconfig) {
     return;
 }
@@ -177,13 +183,15 @@ SCRIPT;
 // label and lead-in text are translatable (rule M4); the URL is a docs link,
 // not a gateway endpoint, so it stays out of classes/api/ (rule A2 N/A here).
 
+$credentialslink = \html_writer::link(
+    'https://docs.fastpix.io/docs/authentication-with-access-tokens',
+    get_string('settings_credentials_link', 'local_fastpix') . ' ↗',
+    ['target' => '_blank', 'rel' => 'noopener']
+);
 $credentialsdesc = \html_writer::span(
-    get_string('settings_credentials_desc', 'local_fastpix') . ' '
-    . \html_writer::link(
-        'https://docs.fastpix.io/docs/authentication-with-access-tokens',
-        get_string('settings_credentials_link', 'local_fastpix') . ' ↗',
-        ['target' => '_blank', 'rel' => 'noopener']),
-    'fp-cred-desc');
+    get_string('settings_credentials_desc', 'local_fastpix') . ' ' . $credentialslink,
+    'fp-cred-desc'
+);
 
 $settings->add(new admin_setting_heading(
     'local_fastpix/heading_credentials',
@@ -237,11 +245,12 @@ $settings->add(new admin_setting_description(
 // teachers (this is a site-admin page); the per-activity override lives in
 // mod_fastpix and is documented there, not here.
 
-$uploaddefaultsdesc = get_string('setting_section_upload_defaults_desc', 'local_fastpix') . ' '
-    . \html_writer::link(
-        'https://docs.fastpix.io/docs/enable-drm-protection',
-        get_string('setting_section_upload_defaults_link', 'local_fastpix') . ' ↗',
-        ['target' => '_blank', 'rel' => 'noopener']);
+$uploaddefaultslink = \html_writer::link(
+    'https://docs.fastpix.io/docs/enable-drm-protection',
+    get_string('setting_section_upload_defaults_link', 'local_fastpix') . ' ↗',
+    ['target' => '_blank', 'rel' => 'noopener']
+);
+$uploaddefaultsdesc = get_string('setting_section_upload_defaults_desc', 'local_fastpix') . ' ' . $uploaddefaultslink;
 
 $settings->add(new admin_setting_heading(
     'local_fastpix/heading_upload_defaults',
@@ -282,11 +291,12 @@ $settings->add(new admin_setting_configselect(
 // Configuration ID is created); it's a docs URL, not a gateway endpoint, so
 // it stays out of classes/api/ (rule A2 N/A here).
 
-$featuresdesc = get_string('settings_features_desc', 'local_fastpix') . ' '
-    . \html_writer::link(
-        'https://docs.fastpix.io/docs/enable-drm-protection',
-        get_string('settings_features_link', 'local_fastpix') . ' ↗',
-        ['target' => '_blank', 'rel' => 'noopener']);
+$featureslink = \html_writer::link(
+    'https://docs.fastpix.io/docs/enable-drm-protection',
+    get_string('settings_features_link', 'local_fastpix') . ' ↗',
+    ['target' => '_blank', 'rel' => 'noopener']
+);
+$featuresdesc = get_string('settings_features_desc', 'local_fastpix') . ' ' . $featureslink;
 
 $settings->add(new admin_setting_heading(
     'local_fastpix/heading_features',
@@ -381,10 +391,12 @@ $webhookurlhtml .= \html_writer::end_tag('div');
 $webhookurlhelplink = \html_writer::link(
     'https://docs.fastpix.io/docs/webhooks-for-status',
     get_string('setting_webhook_url_help_link', 'local_fastpix'),
-    ['target' => '_blank', 'rel' => 'noopener']);
+    ['target' => '_blank', 'rel' => 'noopener']
+);
 $webhookurlhtml .= \html_writer::div(
     get_string('setting_webhook_url_help', 'local_fastpix', $webhookurlhelplink),
-    'fp-field-help');
+    'fp-field-help'
+);
 $webhookurlhtml .= <<<SCRIPT
 <script>
 (function() {
@@ -505,6 +517,14 @@ $fpbrandlogo = '<svg viewBox="0 0 494 433" fill="none" aria-hidden="true">'
 $fpcardcfg = json_encode([
     'brandName' => get_string('pluginname', 'local_fastpix'),
     'brandLogo' => $fpbrandlogo,
+    // Shown in a popup from the "i" button beside the Test connection / Send
+    // test event row labels (CFG.infoRows = their admin form-item ids).
+    'saveNotice' => get_string('settings_save_first_notice', 'local_fastpix'),
+    'infoLabel'  => get_string('ui_more_info', 'local_fastpix'),
+    'infoIcon'   => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+    // Button ids (admin_setting_description rows have no admin-<name> id, so we
+    // anchor off the button and walk up to its row label).
+    'infoRows'   => ['local_fastpix_test_connection_btn', 'local_fastpix_send_test_event_btn'],
     'sections' => [
         ['title' => get_string('settings_credentials', 'local_fastpix'), 'icon' => $fpcardicons['key']],
         ['title' => get_string('setting_section_upload_defaults', 'local_fastpix'), 'icon' => $fpcardicons['upload']],
@@ -606,6 +626,15 @@ $fpcardstyle = <<<'CSS'
 #page-admin-setting-local_fastpix .fp-titled{display:inline-flex;align-items:center;gap:14px;}
 #page-admin-setting-local_fastpix .fp-title-logo{display:inline-grid;place-items:center;flex-shrink:0;width:1.7em;height:1.7em;}
 #page-admin-setting-local_fastpix .fp-title-logo svg{width:100%;height:100%;display:block;}
+/* Clickable "i" beside the page title + its popup. */
+#page-admin-setting-local_fastpix .fp-info-wrap{position:relative;display:inline-flex;align-items:center;vertical-align:middle;margin-left:6px;}
+#page-admin-setting-local_fastpix .fp-info-btn{appearance:none;border:0;cursor:pointer;display:inline-grid;place-items:center;width:1.5rem;height:1.5rem;padding:0;border-radius:50%;color:#ec1e5b;background:#fef0f5;}
+#page-admin-setting-local_fastpix .fp-info-btn:hover{color:#fff;background:#ec1e5b;}
+#page-admin-setting-local_fastpix .fp-info-btn:focus-visible{outline:0;box-shadow:0 0 0 3px rgba(236,30,91,.2);}
+#page-admin-setting-local_fastpix .fp-info-btn svg{width:1.05rem;height:1.05rem;}
+#page-admin-setting-local_fastpix .fp-info-pop{position:absolute;top:calc(100% + 8px);left:0;z-index:60;width:320px;max-width:80vw;padding:14px 16px;background:#fff;border:1px solid #ececef;border-radius:12px;box-shadow:0 12px 32px -8px rgba(20,24,30,.18),0 2px 8px rgba(20,24,30,.06);font-size:14px;font-weight:400;color:#4f5560;line-height:1.55;letter-spacing:0;}
+#page-admin-setting-local_fastpix .fp-info-pop[hidden]{display:none;}
+#page-admin-setting-local_fastpix .fp-info-pop strong{font-weight:700;color:#1d2125;}
 /* Inline help text shown below a field's input (e.g. the webhook URL). */
 #page-admin-setting-local_fastpix .fp-field-help{margin:12px 0 0;max-width:64ch;font-size:14px;color:#4f5560;line-height:1.55;}
 #page-admin-setting-local_fastpix .fp-field-help a{color:#0f6cbf;font-weight:600;text-decoration:none;}
@@ -662,6 +691,57 @@ $fpcardscript = <<<SCRIPT
                         break;
                     }
                 }
+            }
+
+            // Clickable "i" beside a label -> popup. Used on the Test connection
+            // and Send test event rows to warn that those buttons act on SAVED
+            // settings, not unsaved field values.
+            function fpAttachInfo(host) {
+                if (!host || host.querySelector('.fp-info-wrap')) { return; }
+                var info = document.createElement('span');
+                info.className = 'fp-info-wrap';
+                var ibtn = document.createElement('button');
+                ibtn.type = 'button';
+                ibtn.className = 'fp-info-btn';
+                ibtn.setAttribute('aria-label', CFG.infoLabel || 'More information');
+                ibtn.setAttribute('aria-expanded', 'false');
+                ibtn.innerHTML = CFG.infoIcon;
+                var pop = document.createElement('span');
+                pop.className = 'fp-info-pop';
+                pop.setAttribute('role', 'tooltip');
+                pop.hidden = true;
+                pop.innerHTML = CFG.saveNotice;
+                info.appendChild(ibtn);
+                info.appendChild(pop);
+                host.appendChild(info);
+
+                var hide = function() {
+                    pop.hidden = true;
+                    ibtn.setAttribute('aria-expanded', 'false');
+                    document.removeEventListener('mousedown', outside, true);
+                };
+                var outside = function(e) { if (!info.contains(e.target)) { hide(); } };
+                ibtn.addEventListener('click', function() {
+                    if (pop.hidden) {
+                        pop.hidden = false;
+                        ibtn.setAttribute('aria-expanded', 'true');
+                        document.addEventListener('mousedown', outside, true);
+                    } else {
+                        hide();
+                    }
+                });
+                ibtn.addEventListener('keydown', function(e) {
+                    if (e.key === 'Escape' && !pop.hidden) { hide(); ibtn.focus(); }
+                });
+            }
+            if (CFG.saveNotice && CFG.infoIcon) {
+                (CFG.infoRows || []).forEach(function(id) {
+                    var btn = document.getElementById(id);
+                    var item = btn && btn.closest ? btn.closest('.form-item') : null;
+                    if (!item) { return; }
+                    var lbl = item.querySelector('.form-label label') || item.querySelector('.form-label');
+                    if (lbl) { fpAttachInfo(lbl); }
+                });
             }
 
             var iconByTitle = {};
