@@ -33,7 +33,7 @@ final class gateway_test extends \advanced_testcase {
         $this->resetAfterTest();
         gateway::reset();
         \cache::make('local_fastpix', 'circuit_breaker')->purge();
-        set_config('fastpix_base_url', 'https://api.fastpix.io', 'local_fastpix');
+        set_config('fastpix_base_url', 'https://api.fastpix.com', 'local_fastpix');
         set_config('version', '2026050401', 'local_fastpix');
     }
 
@@ -427,7 +427,7 @@ final class gateway_test extends \advanced_testcase {
         // M2 — new structured fields must be present.
         $this->assertStringContainsString('"request_id":"req_', $logbuffer);
         $this->assertStringContainsString('"method":"GET"', $logbuffer);
-        $this->assertStringContainsString('"host":"api.fastpix.io"', $logbuffer);
+        $this->assertStringContainsString('"host":"api.fastpix.com"', $logbuffer);
         $this->assertMatchesRegularExpression('#"path":"\\\\?/v1\\\\?/on-demand\\\\?/abc"#', $logbuffer);
     }
 

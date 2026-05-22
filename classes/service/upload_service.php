@@ -452,7 +452,7 @@ private function build_response(\stdClass $session, bool $deduped): \stdClass {
      * IPs from Moodle's resolver at submission time. This is defense in depth.
      * What this guard does NOT cover: FastPix-side DNS rebinding. Moodle
      * never directly fetches source_url — the gateway POSTs the URL inside
-     * a JSON body to api.fastpix.io, and FastPix's backend fetches it later
+     * a JSON body to api.fastpix.com, and FastPix's backend fetches it later
      * with FastPix's own resolver. CURLOPT_RESOLVE pinning on our cURL
      * handle has zero effect on FastPix's later fetch. That residual risk
      * is FastPix's to mitigate on their infrastructure; we filter obvious

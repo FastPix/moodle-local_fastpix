@@ -30,7 +30,7 @@ use local_fastpix\service\credential_service;
 
 /**
  * FastPix HTTP gateway.
- * The single trusted boundary between local_fastpix and api.fastpix.io.
+ * The single trusted boundary between local_fastpix and api.fastpix.com.
  * Owns retry, circuit breaker, idempotency keys, two timeout profiles,
  * structured logging, and credential injection. Rule A2: no other class
  * may make HTTP calls to FastPix.
@@ -62,7 +62,7 @@ class gateway {
     private const BREAKER_OPEN_SECONDS = 30;
 
     /** @var string Default base url. */
-    private const DEFAULT_BASE_URL = 'https://api.fastpix.io';
+    private const DEFAULT_BASE_URL = 'https://api.fastpix.com';
 
     /**
      * Max response body length the gateway will decode (defensive).

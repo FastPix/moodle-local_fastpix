@@ -73,7 +73,7 @@ class provider implements
         );
 
         $collection->add_external_location_link(
-            'fastpix.io',
+            'fastpix.com',
             [
                 'moodle_owner_userhash' => 'privacy:metadata:fastpix:owner_userhash',
                 'moodle_site_url'       => 'privacy:metadata:fastpix:site_url',

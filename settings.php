@@ -184,7 +184,7 @@ SCRIPT;
 // not a gateway endpoint, so it stays out of classes/api/ (rule A2 N/A here).
 
 $credentialslink = \html_writer::link(
-    'https://docs.fastpix.io/docs/authentication-with-access-tokens',
+    'https://fastpix.com/docs/getting-started/activate-your-account',
     get_string('settings_credentials_link', 'local_fastpix') . ' ↗',
     ['target' => '_blank', 'rel' => 'noopener']
 );
@@ -246,7 +246,7 @@ $settings->add(new admin_setting_description(
 // mod_fastpix and is documented there, not here.
 
 $uploaddefaultslink = \html_writer::link(
-    'https://docs.fastpix.io/docs/enable-drm-protection',
+    'https://fastpix.com/docs/upload-videos/upload-videos-from-device',
     get_string('setting_section_upload_defaults_link', 'local_fastpix') . ' ↗',
     ['target' => '_blank', 'rel' => 'noopener']
 );
@@ -292,7 +292,7 @@ $settings->add(new admin_setting_configselect(
 // it stays out of classes/api/ (rule A2 N/A here).
 
 $featureslink = \html_writer::link(
-    'https://docs.fastpix.io/docs/enable-drm-protection',
+    'https://fastpix.com/docs/video-security/set-up-drm-encryption',
     get_string('settings_features_link', 'local_fastpix') . ' ↗',
     ['target' => '_blank', 'rel' => 'noopener']
 );
@@ -389,7 +389,7 @@ $webhookurlhtml .= \html_writer::end_tag('div');
 // Help text below the input. "FastPix Dashboard → Webhooks" is linked to the
 // webhooks docs; the surrounding sentence is translatable ({$a} = the link).
 $webhookurlhelplink = \html_writer::link(
-    'https://docs.fastpix.io/docs/webhooks-for-status',
+    'https://fastpix.com/docs/webhooks/set-up-webhooks',
     get_string('setting_webhook_url_help_link', 'local_fastpix'),
     ['target' => '_blank', 'rel' => 'noopener']
 );
