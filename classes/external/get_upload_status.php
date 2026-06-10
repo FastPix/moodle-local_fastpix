@@ -47,6 +47,11 @@ class get_upload_status extends \core_external\external_api {
      */
     public static function execute_parameters(): \core_external\external_function_parameters {
         return new \core_external\external_function_parameters([
+            'contextid' => new \core_external\external_value(
+                PARAM_INT,
+                'Context id of the course the upload belongs to',
+                VALUE_REQUIRED
+            ),
             'session_id' => new \core_external\external_value(
                 PARAM_INT,
                 'Local upload_session row id (returned from create_*_session)',
@@ -58,24 +63,32 @@ class get_upload_status extends \core_external\external_api {
     /**
      * Get the status of an upload session.
      *
+     * @param int $contextid Course context id the upload belongs to
      * @param int $sessionid Local upload_session row id
      * @return array{session_id:int,upload_id:string,state:string,fastpix_id:string,expires_at:int}
      * @throws \local_fastpix\exception\asset_not_found if not found OR not owned by caller
      */
-    public static function execute(int $sessionid): array {
+    public static function execute(int $contextid, int $sessionid): array {
         global $USER;
 
         // 1. Validate parameters first.
         $params = self::validate_parameters(
             self::execute_parameters(),
-            ['session_id' => $sessionid]
+            ['contextid' => $contextid, 'session_id' => $sessionid]
         );
 
-        // 2. Authenticate + authorize.
+        // 2. Authenticate + authorize against the COURSE context the upload
+        // belongs to. mod/fastpix:uploadmedia is a CONTEXT_COURSE capability
+        // (ADR-012, owned by mod_fastpix); checking it at system context
+        // denied editing teachers while only admins (who bypass checks) passed.
         // No sesskey: type=read, idempotent, CSRF-safe per Moodle convention.
-        $context = \context_system::instance();
+        // get_course_context() normalises a course OR module context to its
+        // course and throws if there is none (system context → no uploads).
+        $context = \core\context::instance_by_id($params['contextid']);
+        self::validate_context($context);
+        $coursecontext = $context->get_course_context();
         require_login(null, false);
-        require_capability('mod/fastpix:uploadmedia', $context);
+        require_capability('mod/fastpix:uploadmedia', $coursecontext);
 
         // 3. Delegate to service. Ownership check is enforced in the SQL.
         $result = \local_fastpix\service\upload_service::instance()

@@ -15,7 +15,7 @@
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Plugin version metadata for local_fastpix.
+ * Message provider definitions for local_fastpix.
  *
  * @package    local_fastpix
  * @copyright  2026 FastPix Inc. <support@fastpix.io>
@@ -23,11 +23,10 @@
  */
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->component = 'local_fastpix';
-// Monotonic upgrade version for Moodle's upgrade machinery; it must never
-// decrease. The user-visible label is $plugin->release below. A single
-// consolidated 1.0.0 release bundles all fixes.
-$plugin->version = 2026061010;          // Internal upgrade-version (monotonic).
-$plugin->requires  = 2024100100;        // Moodle 4.5 LTS.
-$plugin->maturity  = MATURITY_STABLE;
-$plugin->release   = '1.1.0';           // Public release label.
+$messageproviders = [
+    // Warns the owner that a ready-but-unattached video is scheduled for
+    // removal, with lead time to attach it to an activity first. Delivery
+    // defaults are left to the messaging subsystem (the MESSAGE_* constants
+    // are not yet defined when this file is parsed during install).
+    'unattached_asset_released' => [],
+];

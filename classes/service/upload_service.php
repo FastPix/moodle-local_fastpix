@@ -41,6 +41,24 @@ class upload_service {
     /** @var int Dedup ttl seconds. */
     private const DEDUP_TTL_SECONDS   = 60;
 
+    /**
+     * Auto-subtitle (Whisper) languages: code => display name. The spoken
+     * language is detected/transcribed, not translated. Supported tier first,
+     * beta tier after. Verified against the FastPix auto-subtitles docs.
+     *
+     * @var array<string,string>
+     */
+    private const SUBTITLE_LANGUAGES = [
+        // Supported.
+        'en' => 'English', 'es' => 'Spanish', 'it' => 'Italian',
+        'pt' => 'Portuguese', 'de' => 'German', 'fr' => 'French',
+        // Beta.
+        'pl' => 'Polish', 'ru' => 'Russian', 'nl' => 'Dutch', 'ca' => 'Catalan',
+        'tr' => 'Turkish', 'sv' => 'Swedish', 'uk' => 'Ukrainian', 'no' => 'Norwegian',
+        'fi' => 'Finnish', 'sk' => 'Slovak', 'el' => 'Greek', 'cs' => 'Czech',
+        'hr' => 'Croatian', 'da' => 'Danish', 'ro' => 'Romanian', 'bg' => 'Bulgarian',
+    ];
+
     /** @var ?self $instance */
     private static ?self $instance = null;
 
@@ -75,6 +93,7 @@ public function create_file_upload_session(
     bool $drmrequired = false,
     ?string $accesspolicy = null,
     ?string $maxresolution = null,
+    int $courseid = 0,
 ): \stdClass {
     // Gate on the EFFECTIVE access policy, not the raw $drmrequired flag: the
     // policy can resolve to 'drm' via the caller's value or the admin
@@ -109,6 +128,7 @@ public function create_file_upload_session(
         uploadid:  $uploadid,
         uploadurl: $uploadurl,
         sourceurl: null,
+        courseid:  $courseid,
     );
 
     $cache->set($hashkey, $session->id);
@@ -132,6 +152,7 @@ public function create_url_pull_session(
     bool $drmrequired = false,
     ?string $accesspolicy = null,
     ?string $maxresolution = null,
+    int $courseid = 0,
 ): \stdClass {
     // SSRF guard runs BEFORE any gateway call (rule S6).
     $this->assert_ssrf_safe($sourceurl);
@@ -168,11 +189,233 @@ public function create_url_pull_session(
         uploadid:  $uploadid,
         uploadurl: '',
         sourceurl: $sourceurl,
+        courseid:  $courseid,
     );
 
     $cache->set($hashkey, $session->id);
 
     return $this->build_response($session, deduped: false);
+}
+
+    /**
+     * Create a direct upload, applying the uploader's chosen settings
+     * (title + access policy + captions) to the FastPix pushMediaSettings.
+     *
+     * @param int $userid
+     * @param string $title
+     * @param string $accesspolicy "public" | "private" | "drm"
+     * @param string $captionsmode "none" | "auto" | "vtt"
+     * @param ?string $languagecode Required (and validated) when captionsmode = "auto".
+     * @return \stdClass {session_id, upload_id, upload_url, expires_at}
+     * @throws \invalid_parameter_exception on bad policy/captions/language.
+     * @throws drm_not_configured when policy is 'drm' but DRM is not configured.
+     */
+public function create_direct_upload_with_settings(
+    int $userid,
+    string $title,
+    string $accesspolicy,
+    string $captionsmode,
+    ?string $languagecode = null,
+    int $courseid = 0,
+): \stdClass {
+    if (!in_array($accesspolicy, ['public', 'private', 'drm'], true)) {
+        throw new \invalid_parameter_exception('accesspolicy:' . $accesspolicy);
+    }
+    if (!in_array($captionsmode, ['none', 'auto', 'vtt'], true)) {
+        throw new \invalid_parameter_exception('captionsmode:' . $captionsmode);
+    }
+
+    // W12 double-gate: 'drm' intent requires drm_enabled(); fail loud — never
+    // silently downgrade a DRM request to an unprotected upload.
+    $this->assert_drm_gate($accesspolicy);
+
+    // Auto-captions: validate the spoken language and build the subtitles
+    // object. FastPix wants a single {languageName, languageCode} object — a
+    // list is rejected with HTTP 400 (verified live 2026-06-09).
+    $subtitles = null;
+    if ($captionsmode === 'auto') {
+        $languagename = $this->subtitle_language_name($languagecode);
+        $subtitles = [
+            'languageName' => $languagename,
+            'languageCode' => (string)$languagecode,
+        ];
+    }
+
+    // DRM uploads send accessPolicy='drm' alongside the drmConfigurationId.
+    // FastPix REQUIRES this pairing — accessPolicy='private'+drmConfigurationId
+    // is rejected with HTTP 400 ("drmConfigurationId is only applicable when
+    // accessPolicy is set to 'drm'"), verified live 2026-06-09.
+    $fastpixpolicy = $accesspolicy;
+    $drmconfigid  = $accesspolicy === 'drm'
+        ? feature_flag_service::instance()->drm_configuration_id()
+        : null;
+
+    // Double-submit guard (W11 spirit): identical settings from one user inside
+    // the 60s window return the same session rather than a duplicate upload.
+    $cache   = \cache::make('local_fastpix', 'upload_dedup');
+    $hashkey = $this->dedup_key_settings($userid, $title, $accesspolicy, $captionsmode, $languagecode);
+    $cached  = $this->dedup_hit($cache, $hashkey);
+    if ($cached !== null) {
+        return $cached;
+    }
+
+    $ownerhash = $this->owner_hash($userid);
+    $response  = \local_fastpix\api\gateway::instance()->input_video_direct_upload(
+        $ownerhash,
+        [
+            'moodle_owner_userhash' => $ownerhash,
+            'moodle_site_url'       => (new \moodle_url('/'))->out(false),
+        ],
+        $fastpixpolicy,
+        $drmconfigid,
+        $this->resolve_max_resolution(null),
+        $subtitles,
+        // The pushMediaSettings.title — FastPix's media-title field; surfaces
+        // at the asset's data.title, which the projector reads to name the asset.
+        $title,
+    );
+
+    $uploadid  = (string)($response->data->uploadId ?? $response->uploadId ?? '');
+    $uploadurl = (string)($response->data->url ?? $response->url ?? '');
+
+    $session = $this->persist_session_with_settings(
+        $userid,
+        $uploadid,
+        $uploadurl,
+        $title,
+        $accesspolicy,
+        $captionsmode,
+        $languagecode,
+        $courseid,
+    );
+    $cache->set($hashkey, $session->id);
+
+    return $this->build_response($session, deduped: false);
+}
+
+    /**
+     * Attach a manual subtitle (.vtt) track to a ready asset via FastPix's
+     * Add Track API. Owner-scoped: a caller can only add tracks to media they
+     * own (mirrors get_status — not-owned is indistinguishable from not-found).
+     *
+     * @param int $userid
+     * @param string $mediaid FastPix media id (asset fastpix_id).
+     * @param string $languagecode
+     * @param string $vtturl Public HTTPS URL FastPix will fetch the .vtt from.
+     * @return \stdClass {track_id}
+     * @throws \invalid_parameter_exception on unsupported language.
+     * @throws \local_fastpix\exception\asset_not_found when not owned / unknown.
+     * @throws ssrf_blocked when $vtturl fails the SSRF allow-list.
+     */
+public function add_subtitle_track(
+    int $userid,
+    string $mediaid,
+    string $languagecode,
+    string $vtturl,
+): \stdClass {
+    $languagename = $this->subtitle_language_name($languagecode);
+
+    // Owner-scope BEFORE any network call. get_by_fastpix_id is a read-path
+    // cache lookup (no lazy fetch — rule W7 not engaged here).
+    $asset = \local_fastpix\service\asset_service::get_by_fastpix_id($mediaid);
+    if ($asset === null || (int)$asset->owner_userid !== $userid) {
+        throw new \local_fastpix\exception\asset_not_found('media:' . $mediaid);
+    }
+
+    // SSRF allow-list runs BEFORE the gateway call (rule S6).
+    $this->assert_ssrf_safe($vtturl);
+
+    $response = \local_fastpix\api\gateway::instance()->add_media_track(
+        $mediaid,
+        $vtturl,
+        $languagecode,
+        $languagename,
+    );
+
+    return (object)[
+        'track_id' => (string)($response->data->id ?? $response->id ?? ''),
+    ];
+}
+
+    /**
+     * Resolve a supported auto-subtitle language code to its display name.
+     *
+     * @param ?string $code
+     * @return string
+     * @throws \invalid_parameter_exception when the code is missing/unsupported.
+     */
+private function subtitle_language_name(?string $code): string {
+    $code = (string)$code;
+    if (!isset(self::SUBTITLE_LANGUAGES[$code])) {
+        throw new \invalid_parameter_exception('unsupported_subtitle_language:' . $code);
+    }
+    return self::SUBTITLE_LANGUAGES[$code];
+}
+
+    /**
+     * Dedup key for the settings-based direct upload entry point. Same user +
+     * identical (title, policy, captions, language) inside the 60s window
+     * returns the existing session (double-submit guard).
+     *
+     * @param int $userid
+     * @param string $title
+     * @param string $policy
+     * @param string $captions
+     * @param ?string $lang
+     * @return string
+     */
+private function dedup_key_settings(
+    int $userid,
+    string $title,
+    string $policy,
+    string $captions,
+    ?string $lang,
+): string {
+    $logical = "upset:{$userid}:" . hash('sha256', implode('|', [$title, $policy, $captions, (string)$lang]));
+    return 'us_' . substr(hash('sha256', $logical), 0, 32);
+}
+
+    /**
+     * Persist an upload session row carrying the chosen settings.
+     *
+     * @param int $userid
+     * @param string $uploadid
+     * @param string $uploadurl
+     * @param string $title
+     * @param string $accesspolicy
+     * @param string $captionsmode
+     * @param ?string $languagecode
+     * @return \stdClass
+     */
+private function persist_session_with_settings(
+    int $userid,
+    string $uploadid,
+    string $uploadurl,
+    string $title,
+    string $accesspolicy,
+    string $captionsmode,
+    ?string $languagecode,
+    int $courseid = 0,
+): \stdClass {
+    global $DB;
+    $now = time();
+    $row = (object)[
+        'userid'        => $userid,
+        'courseid'      => $courseid,
+        'upload_id'     => $uploadid,
+        'upload_url'    => $uploadurl,
+        'fastpix_id'    => null,
+        'source_url'    => null,
+        'state'         => 'pending',
+        'title'         => $title,
+        'access_policy' => $accesspolicy,
+        'captions_mode' => $captionsmode,
+        'language_code' => ($languagecode !== null && $languagecode !== '') ? $languagecode : null,
+        'timecreated'   => $now,
+        'expires_at'    => $now + self::SESSION_TTL_SECONDS,
+    ];
+    $row->id = $DB->insert_record(self::TABLE, $row);
+    return $row;
 }
 
     /**
@@ -264,6 +507,36 @@ public function get_status(int $sessionid, int $userid): \stdClass {
         'fastpix_id' => $row->fastpix_id !== null ? (string)$row->fastpix_id : '',
         'expires_at' => (int)$row->expires_at,
     ];
+}
+
+    /**
+     * List a user's ready, embeddable videos within a course, for the editor
+     * picker. Owner-scoped (the uploader's own videos only), course-scoped
+     * (via the upload session's courseid), ready and non-DRM (DRM videos are
+     * not embeddable through the picker). Soft-deleted assets are excluded.
+     *
+     * @param int $courseid
+     * @param int $userid
+     * @return \stdClass[] Asset rows (local_fastpix_asset), newest first.
+     */
+public function list_ready_for_course(int $courseid, int $userid): array {
+    global $DB;
+    $sql = "SELECT a.*
+              FROM {local_fastpix_asset} a
+              JOIN {local_fastpix_upload_session} s ON s.fastpix_id = a.fastpix_id
+             WHERE s.courseid = :courseid
+               AND a.owner_userid = :userid
+               AND a.status = :ready
+               AND a.access_policy <> :drm
+               AND a.deleted_at IS NULL
+          ORDER BY a.timecreated DESC";
+    $rows = $DB->get_records_sql($sql, [
+        'courseid' => $courseid,
+        'userid'   => $userid,
+        'ready'    => 'ready',
+        'drm'      => 'drm',
+    ]);
+    return array_values($rows);
 }
 
     /**
@@ -405,6 +678,7 @@ private function lookup_session(int $id): ?\stdClass {
      * @param string $uploadid
      * @param string $uploadurl
      * @param ?string $sourceurl
+     * @param int $courseid
      * @return \stdClass
      */
 private function persist_session(
@@ -412,11 +686,13 @@ private function persist_session(
     string $uploadid,
     string $uploadurl,
     ?string $sourceurl,
+    int $courseid = 0,
 ): \stdClass {
     global $DB;
     $now = time();
     $row = (object)[
         'userid'      => $userid,
+        'courseid'    => $courseid,
         'upload_id'   => $uploadid,
         'upload_url'  => $uploadurl,
         'fastpix_id'  => null,

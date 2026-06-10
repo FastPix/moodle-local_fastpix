@@ -16,7 +16,8 @@ webhook endpoint, and a health probe.
 
 ### Gateway and integration
 
-- Direct upload and URL-pull workflows for video assets.
+- Direct upload and URL-pull workflows for video assets, scoped to the
+  course the upload is started in.
 - Server-side request forgery (SSRF) protection on URL-pull sources.
 - Shared HTTP gateway with circuit breaker and rate limiter, backed by
   Moodle Universal Cache.
@@ -228,6 +229,12 @@ video features.
 
 The related activity-side capability `mod/fastpix:uploadmedia` is
 defined by the `mod_fastpix` plugin, not this one.
+
+The upload web services authorise `mod/fastpix:uploadmedia` at the
+**course** context (not the site): a user must hold it in the course
+where the upload happens. Editing teachers have it by default; enrolled
+students do not, so they cannot upload or embed videos — they can still
+view them.
 
 ## Health endpoint
 

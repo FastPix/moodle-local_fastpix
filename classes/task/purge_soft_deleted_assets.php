@@ -71,7 +71,7 @@ class purge_soft_deleted_assets extends \core\task\scheduled_task {
 
         $rows = $DB->get_records_select(
             self::ASSET_TABLE,
-            'deleted_at IS NOT NULL AND deleted_at < :cutoff',
+            'deleted_at IS NOT NULL AND deleted_at < :cutoff AND gdpr_delete_pending_at IS NULL',
             ['cutoff' => $cutoff],
             'deleted_at ASC',
             'id, fastpix_id, playback_id',
@@ -80,10 +80,31 @@ class purge_soft_deleted_assets extends \core\task\scheduled_task {
         );
 
         $purged = 0;
+        $deferred = 0;
         $cache = \cache::make('local_fastpix', 'asset');
 
         foreach ($rows as $row) {
             try {
+                // Release the FastPix asset BEFORE removing the local row (which
+                // holds the fastpix_id). delete_media is idempotent — a 404
+                // returns cleanly. If FastPix is unreachable, stamp
+                // gdpr_delete_pending_at and hand off to retry_gdpr_delete,
+                // keeping the local row so the fastpix_id isn't lost.
+                try {
+                    \local_fastpix\api\gateway::instance()->delete_media((string)$row->fastpix_id);
+                } catch (\Throwable $e) {
+                    $DB->set_field(
+                        self::ASSET_TABLE,
+                        'gdpr_delete_pending_at',
+                        time(),
+                        ['id' => (int)$row->id],
+                    );
+                    mtrace("purge_soft_deleted_assets: FastPix delete deferred for id={$row->id}: "
+                        . $e->getMessage());
+                    $deferred++;
+                    continue;
+                }
+
                 $DB->delete_records(self::TRACK_TABLE, ['asset_id' => (int)$row->id]);
                 $DB->delete_records(self::ASSET_TABLE, ['id' => (int)$row->id]);
 
@@ -107,6 +128,7 @@ class purge_soft_deleted_assets extends \core\task\scheduled_task {
         mtrace(json_encode([
             'event'           => 'task.purge_soft_deleted_assets',
             'count_purged'    => $purged,
+            'count_deferred'  => $deferred,
             'count_remaining' => $remaining,
             'elapsed_ms'      => $elapsedms,
             'batch_size'      => self::BATCH_SIZE,

@@ -129,6 +129,12 @@ class projector {
             return;
         }
 
+        // Recover the real uploader as the asset owner. local_fastpix inserts
+        // assets with owner_userid=0 (the projector has no user context); the
+        // uploader's id lives on the matching upload_session. Fill it once;
+        // never overwrite an owner already set.
+        $this->backfill_owner_from_session($row);
+
         $row->last_event_id = (string)$event->id;
         $row->last_event_at = $this->event_timestamp($event);
         $row->timemodified  = time();
@@ -289,7 +295,7 @@ class projector {
             'fastpix_id'             => $fastpixid,
             'playback_id'            => null,
             'owner_userid'           => 0, // Sentinel.
-            'title'                  => (string)($data->title ?? "Asset {$fastpixid}"),
+            'title'                  => $this->resolve_title($data, $fastpixid),
             'duration'               => $this->parse_duration($data->duration ?? null),
             'status'                 => (string)($data->status ?? 'created'),
             'access_policy'          => (string)($data->accessPolicy ?? 'private'),
@@ -306,6 +312,26 @@ class projector {
         $this->apply_first_playback_id($data, $row);
         $row->id = $DB->insert_record(self::TABLE, $row);
         return $row;
+    }
+
+    /**
+     * Resolve the asset title from the event payload. local_fastpix sends the
+     * uploader's title in pushMediaSettings.title, which FastPix surfaces at
+     * the media's data.title (verified live 2026-06-09). Precedence:
+     * data.title → data.metadata.title (legacy custom key) → synthetic.
+     *
+     * @param \stdClass $data
+     * @param string $fastpixid
+     * @return string
+     */
+    private function resolve_title(\stdClass $data, string $fastpixid): string {
+        if (isset($data->title) && (string)$data->title !== '') {
+            return (string)$data->title;
+        }
+        if (isset($data->metadata->title) && (string)$data->metadata->title !== '') {
+            return (string)$data->metadata->title;
+        }
+        return "Asset {$fastpixid}";
     }
 
     /**
@@ -356,6 +382,35 @@ class projector {
             return ((int)$m[1]) * 3600 + ((int)$m[2]) * 60 + (float)$m[3];
         }
         return null;
+    }
+
+    /**
+     * Recover the asset owner from the matching upload_session ledger row.
+     * The uploader's real id is recorded on upload_session.userid at upload
+     * time; its upload_id carries the same UUID as the media asset (FastPix
+     * reuses one id) and link_upload_session() also stamps fastpix_id. Only
+     * fills a still-sentinel owner, and only with an unambiguous positive id.
+     *
+     * @param \stdClass $row Asset row, mutated in place.
+     */
+    private function backfill_owner_from_session(\stdClass $row): void {
+        global $DB;
+        if ((int)$row->owner_userid !== 0) {
+            return;
+        }
+        $userids = $DB->get_fieldset_select(
+            'local_fastpix_upload_session',
+            'userid',
+            'fastpix_id = :fpid OR upload_id = :upid',
+            ['fpid' => $row->fastpix_id, 'upid' => $row->fastpix_id]
+        );
+        $owners = array_values(array_unique(array_filter(
+            array_map('intval', $userids),
+            static fn($uid) => $uid > 0
+        )));
+        if (count($owners) === 1) {
+            $row->owner_userid = $owners[0];
+        }
     }
 
     /**

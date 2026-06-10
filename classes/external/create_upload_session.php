@@ -43,58 +43,102 @@ class create_upload_session extends \core_external\external_api {
      */
     public static function execute_parameters(): \core_external\external_function_parameters {
         return new \core_external\external_function_parameters([
-            'filename' => new \core_external\external_value(
-                PARAM_TEXT,
-                'Original filename of the upload (used for dedup hashing only)',
+            'contextid' => new \core_external\external_value(
+                PARAM_INT,
+                'Context id of the course the upload belongs to',
                 VALUE_REQUIRED
             ),
-            'size' => new \core_external\external_value(
-                PARAM_INT,
-                'File size in bytes (used for dedup hashing only)',
+            'title' => new \core_external\external_value(
+                PARAM_TEXT,
+                'Title applied to the uploaded video',
                 VALUE_REQUIRED
+            ),
+            'accesspolicy' => new \core_external\external_value(
+                PARAM_ALPHA,
+                'Access policy: private, public, or drm',
+                VALUE_REQUIRED
+            ),
+            'captionsmode' => new \core_external\external_value(
+                PARAM_ALPHA,
+                'Captions: none, auto (Whisper), or vtt (manual)',
+                VALUE_DEFAULT,
+                'none'
+            ),
+            'languagecode' => new \core_external\external_value(
+                PARAM_ALPHANUMEXT,
+                'Spoken-language code for auto captions; required when captionsmode=auto',
+                VALUE_DEFAULT,
+                ''
             ),
         ]);
     }
 
     /**
-     * Create a direct upload session.
+     * Create a direct upload session with the chosen settings.
      *
-     * @param string $filename Original filename
-     * @param int    $size     File size in bytes
-     * @return array{session_id:int,upload_id:string,upload_url:string,expires_at:int,deduped:bool}
+     * @param int    $contextid    Course context id the upload belongs to
+     * @param string $title        Title applied to the uploaded video
+     * @param string $accesspolicy private | public | drm
+     * @param string $captionsmode none | auto | vtt
+     * @param string $languagecode Spoken-language code (auto captions only)
+     * @return array{uploadurl:string,uploadid:string}
      */
-    public static function execute(string $filename, int $size): array {
+    public static function execute(
+        int $contextid,
+        string $title,
+        string $accesspolicy,
+        string $captionsmode = 'none',
+        string $languagecode = ''
+    ): array {
         global $USER;
 
         // 1. Validate parameters first (throws invalid_parameter_exception).
         $params = self::validate_parameters(
             self::execute_parameters(),
-            ['filename' => $filename, 'size' => $size]
+            [
+                'contextid'    => $contextid,
+                'title'        => $title,
+                'accesspolicy' => $accesspolicy,
+                'captionsmode' => $captionsmode,
+                'languagecode' => $languagecode,
+            ]
         );
 
-        // 2. Authenticate + authorize.
-        $context = \context_system::instance();
+        // 2. Authenticate + authorize against the COURSE context the upload
+        // belongs to. mod/fastpix:uploadmedia is a CONTEXT_COURSE capability
+        // (ADR-012, owned by mod_fastpix); checking it at system context
+        // denied editing teachers while only admins (who bypass checks) passed.
+        // get_course_context() normalises a course OR module context to its
+        // course and throws if there is none (system context → no uploads).
+        $context = \core\context::instance_by_id($params['contextid']);
+        self::validate_context($context);
+        $coursecontext = $context->get_course_context();
         require_login(null, false);
         require_sesskey();
-        require_capability('mod/fastpix:uploadmedia', $context);
+        require_capability('mod/fastpix:uploadmedia', $coursecontext);
 
-        // 3. Delegate to service layer.
+        // 3. Delegate to service layer. DRM gating, language validation and the
+        // SSRF-free pushMediaSettings mapping all live in the service. The
+        // courseid scopes the upload for the editor picker.
         $result = \local_fastpix\service\upload_service::instance()
-            ->create_file_upload_session(
+            ->create_direct_upload_with_settings(
                 (int)$USER->id,
-                [
-                'filename' => $params['filename'],
-                'size'     => $params['size'],
-                ]
+                $params['title'],
+                $params['accesspolicy'],
+                $params['captionsmode'],
+                $params['languagecode'] !== '' ? $params['languagecode'] : null,
+                (int)$coursecontext->instanceid,
             );
 
-        // 4. Return matches execute_returns() structure.
+        // 4. Credentials never leave the server — only the signed upload URL.
+        // session_id is the integer the consumer stores (mdl_fastpix.
+        // upload_session_id is PARAM_INT) and later resolves the asset with
+        // via asset_service::get_by_upload_session_id(); the UUID uploadid
+        // would be truncated by PARAM_INT (see ADR-015).
         return [
-        'session_id' => (int)$result->session_id,
-        'upload_id'  => (string)$result->upload_id,
-        'upload_url' => (string)$result->upload_url,
-        'expires_at' => (int)$result->expires_at,
-        'deduped'    => (bool)$result->deduped,
+            'session_id' => (int)$result->session_id,
+            'uploadurl'  => (string)$result->upload_url,
+            'uploadid'   => (string)$result->upload_id,
         ];
     }
 
@@ -107,23 +151,16 @@ class create_upload_session extends \core_external\external_api {
         return new \core_external\external_single_structure([
             'session_id' => new \core_external\external_value(
                 PARAM_INT,
-                'Local upload session row id'
+                'Local upload session row id; store this and resolve the asset '
+                . 'via get_by_upload_session_id once the webhook lands'
             ),
-            'upload_id' => new \core_external\external_value(
+            'uploadurl' => new \core_external\external_value(
+                PARAM_RAW,
+                'Signed upload URL the browser PUTs the file to'
+            ),
+            'uploadid' => new \core_external\external_value(
                 PARAM_TEXT,
                 'FastPix upload ID (UUID)'
-            ),
-            'upload_url' => new \core_external\external_value(
-                PARAM_RAW,
-                'Signed upload URL (Google Cloud Storage); empty for URL pull'
-            ),
-            'expires_at' => new \core_external\external_value(
-                PARAM_INT,
-                'Unix timestamp at which upload_url expires'
-            ),
-            'deduped' => new \core_external\external_value(
-                PARAM_BOOL,
-                'True if this session was returned from the 60s dedup cache'
             ),
         ]);
     }

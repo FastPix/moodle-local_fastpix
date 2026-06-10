@@ -284,6 +284,34 @@ $settings->add(new admin_setting_configselect(
     ],
 ));
 
+$settings->add(new admin_setting_configduration(
+    'local_fastpix/orphaned_session_ttl',
+    new lang_string('setting_orphaned_session_ttl', 'local_fastpix'),
+    new lang_string('setting_orphaned_session_ttl_desc', 'local_fastpix'),
+    DAYSECS,
+));
+
+$settings->add(new admin_setting_configduration(
+    'local_fastpix/unattached_grace',
+    new lang_string('setting_unattached_grace', 'local_fastpix'),
+    new lang_string('setting_unattached_grace_desc', 'local_fastpix'),
+    WEEKSECS,
+));
+
+$settings->add(new admin_setting_configduration(
+    'local_fastpix/unattached_warning_lead',
+    new lang_string('setting_unattached_warning_lead', 'local_fastpix'),
+    new lang_string('setting_unattached_warning_lead_desc', 'local_fastpix'),
+    2 * DAYSECS,
+));
+
+$settings->add(new admin_setting_configcheckbox(
+    'local_fastpix/auto_release_enabled',
+    new lang_string('setting_auto_release_enabled', 'local_fastpix'),
+    new lang_string('setting_auto_release_enabled_desc', 'local_fastpix'),
+    0,
+));
+
 // 3. Feature flags.
 //
 // Subtitle + docs link, matching the credentials / upload-defaults sections.

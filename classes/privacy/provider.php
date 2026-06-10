@@ -67,6 +67,7 @@ class provider implements
                 'upload_id'   => 'privacy:metadata:upload_session:upload_id',
                 'source_url'  => 'privacy:metadata:upload_session:source_url',
                 'state'       => 'privacy:metadata:upload_session:state',
+                'title'       => 'privacy:metadata:upload_session:title',
                 'timecreated' => 'privacy:metadata:upload_session:timecreated',
             ],
             'privacy:metadata:upload_session',

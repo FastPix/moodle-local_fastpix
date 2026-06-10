@@ -121,6 +121,8 @@ class gateway {
      * @param string $accesspolicy
      * @param ?string $drmconfigid
      * @param string $maxresolution
+     * @param ?array $subtitles Auto-captions object {languageName, languageCode}; null otherwise.
+     * @param string $title Media title; sets the asset's data.title (dashboard name).
      * @return \stdClass
      */
 public function input_video_direct_upload(
@@ -129,6 +131,8 @@ public function input_video_direct_upload(
     string $accesspolicy,
     ?string $drmconfigid,
     string $maxresolution = '1080p',
+    ?array $subtitles = null,
+    string $title = '',
 ): \stdClass {
     $body = [
         'corsOrigin'   => '*',
@@ -138,8 +142,19 @@ public function input_video_direct_upload(
             'maxResolution' => $maxresolution,
         ],
     ];
+    if ($title !== '') {
+        // The pushMediaSettings.title is FastPix's dedicated media-title field
+        // and populates the media's data.title (verified live 2026-06-09). NOT
+        // same as metadata.title, which is just a custom key (data.metadata.*).
+        $body['pushMediaSettings']['title'] = $title;
+    }
     if ($drmconfigid !== null && $drmconfigid !== '') {
         $body['pushMediaSettings']['drmConfigurationId'] = $drmconfigid;
+    }
+    if (!empty($subtitles)) {
+        // FastPix expects a single subtitles OBJECT {languageName, languageCode}
+        // — an array/list is rejected with HTTP 400 (verified live 2026-06-09).
+        $body['pushMediaSettings']['subtitles'] = $subtitles;
     }
 
     // X-Client-Type: web-browser tells FastPix to issue a POST-signed
@@ -224,6 +239,38 @@ public function delete_media(string $fastpixid): void {
         null,
         self::PROFILE_STANDARD,
         $this->idempotency_key('delete_media', $fastpixid, null),
+    );
+}
+
+    /**
+     * POST /v1/on-demand/{mediaId}/tracks — attach a manual subtitle track.
+     * FastPix fetches the .vtt from $vtturl on its own infrastructure (the
+     * SSRF guard on $vtturl runs in upload_service before this call).
+     *
+     * @param string $mediaid
+     * @param string $vtturl       Public HTTPS URL of the .vtt file.
+     * @param string $languagecode BCP-47 / ISO language code.
+     * @param string $languagename Human-readable language name.
+     * @return \stdClass
+     */
+public function add_media_track(
+    string $mediaid,
+    string $vtturl,
+    string $languagecode,
+    string $languagename,
+): \stdClass {
+    $body = [
+        'url'          => $vtturl,
+        'type'         => 'subtitle',
+        'languageCode' => $languagecode,
+        'languageName' => $languagename,
+    ];
+    return $this->request(
+        'POST',
+        '/v1/on-demand/' . rawurlencode($mediaid) . '/tracks',
+        $body,
+        self::PROFILE_STANDARD,
+        $this->idempotency_key('add_media_track', $mediaid, $body),
     );
 }
 

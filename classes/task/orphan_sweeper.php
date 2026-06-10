@@ -24,9 +24,11 @@
 namespace local_fastpix\task;
 
 /**
- * Daily sweep of expired upload sessions. Marks state='orphaned' on rows
- * past their TTL; best-effort DELETE on the FastPix side. Auditability is
- * preserved — rows are not removed.
+ * Daily sweep of stale upload sessions: rows still 'pending' (never linked to
+ * an asset) older than the configurable TTL (admin setting
+ * orphaned_session_ttl, default 24h). Cancels the FastPix-side upload
+ * best-effort, then deletes the local row so abandoned sessions don't
+ * accumulate. Linked sessions (state != 'pending') are never touched.
  *
  * @package    local_fastpix
  * @copyright  2026 FastPix Inc. <support@fastpix.io>
@@ -37,6 +39,8 @@ class orphan_sweeper extends \core\task\scheduled_task {
     private const TABLE = 'local_fastpix_upload_session';
     /** @var int Batch size. */
     private const BATCH_SIZE = 500;
+    /** @var int Fallback TTL when the admin setting is unset/invalid (24h). */
+    private const DEFAULT_TTL_SECONDS = DAYSECS;
 
     /**
      * Get name.
@@ -48,23 +52,32 @@ class orphan_sweeper extends \core\task\scheduled_task {
     }
 
     /**
-     * Web service main entry point.
-     */    public function execute(): void {
+     * Delete stale, never-progressed upload sessions past the TTL.
+     */
+    public function execute(): void {
         global $DB;
 
-        $now = time();
+        $ttl = (int)get_config('local_fastpix', 'orphaned_session_ttl');
+        if ($ttl <= 0) {
+            $ttl = self::DEFAULT_TTL_SECONDS;
+        }
+        $cutoff = time() - $ttl;
+
         $rows = $DB->get_records_select(
             self::TABLE,
-            "state = :state AND expires_at < :now",
-            ['state' => 'pending', 'now' => $now],
-            'expires_at ASC',
+            "state = :state AND timecreated < :cutoff",
+            ['state' => 'pending', 'cutoff' => $cutoff],
+            'timecreated ASC',
             '*',
             0,
             self::BATCH_SIZE,
         );
 
-        $orphaned = 0;
+        $deleted = 0;
         foreach ($rows as $row) {
+            // Best-effort cancel on the FastPix side so the abandoned upload
+            // doesn't linger (and cost) on the provider. Failures are logged
+            // and do not block the local cleanup.
             if (!empty($row->upload_id)) {
                 try {
                     \local_fastpix\api\gateway::instance()->delete_media($row->upload_id);
@@ -74,10 +87,10 @@ class orphan_sweeper extends \core\task\scheduled_task {
                 }
             }
 
-            $DB->set_field(self::TABLE, 'state', 'orphaned', ['id' => $row->id]);
-            $orphaned++;
+            $DB->delete_records(self::TABLE, ['id' => $row->id]);
+            $deleted++;
         }
 
-        mtrace("orphan_sweeper: orphaned {$orphaned} expired session(s)");
-}
+        mtrace("orphan_sweeper: deleted {$deleted} stale pending session(s) older than {$ttl}s");
+    }
 }

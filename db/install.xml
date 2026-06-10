@@ -20,6 +20,8 @@
         <FIELD NAME="deleted_at"             TYPE="int"  LENGTH="10"  NOTNULL="false"/>
         <FIELD NAME="gdpr_delete_pending_at" TYPE="int"  LENGTH="10"  NOTNULL="false" COMMENT="Set when local delete done but FastPix delete failed"/>
         <FIELD NAME="gdpr_delete_attempts"   TYPE="int"  LENGTH="10"  NOTNULL="true" DEFAULT="0" COMMENT="Number of remote-delete retry attempts; capped at 10 then row stops being retried"/>
+        <FIELD NAME="unattached_warned_at"   TYPE="int"  LENGTH="10"  NOTNULL="false" COMMENT="When the owner was warned that this ready-but-unattached asset is scheduled for release"/>
+        <FIELD NAME="last_seen_at"           TYPE="int"  LENGTH="10"  NOTNULL="false" COMMENT="Last time filter_fastpix rendered an embed of this asset (usage heartbeat)"/>
         <FIELD NAME="timecreated"            TYPE="int"  LENGTH="10"  NOTNULL="true"/>
         <FIELD NAME="timemodified"           TYPE="int"  LENGTH="10"  NOTNULL="true"/>
       </FIELDS>
@@ -56,11 +58,16 @@
       <FIELDS>
         <FIELD NAME="id"          TYPE="int"  LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
         <FIELD NAME="userid"      TYPE="int"  LENGTH="10" NOTNULL="true"/>
+        <FIELD NAME="courseid"    TYPE="int"  LENGTH="10" NOTNULL="true" DEFAULT="0" COMMENT="Course the upload belongs to (0 = pre-course-aware/unknown)"/>
         <FIELD NAME="upload_id"   TYPE="char" LENGTH="64" NOTNULL="true"  COMMENT="FastPix Upload ID (transient)"/>
         <FIELD NAME="upload_url"  TYPE="text"             NOTNULL="true"/>
         <FIELD NAME="fastpix_id"  TYPE="char" LENGTH="64" NOTNULL="false" COMMENT="Filled when media.created webhook arrives"/>
         <FIELD NAME="source_url"  TYPE="text"             NOTNULL="false"/>
         <FIELD NAME="state"       TYPE="char" LENGTH="24" NOTNULL="true" DEFAULT="pending"/>
+        <FIELD NAME="title"         TYPE="char" LENGTH="255" NOTNULL="false" COMMENT="Uploader-supplied title applied to the FastPix asset"/>
+        <FIELD NAME="access_policy" TYPE="char" LENGTH="16"  NOTNULL="false" COMMENT="Chosen access policy: public|private|drm"/>
+        <FIELD NAME="captions_mode" TYPE="char" LENGTH="8"   NOTNULL="false" COMMENT="Captions choice: none|auto|vtt"/>
+        <FIELD NAME="language_code" TYPE="char" LENGTH="16"  NOTNULL="false" COMMENT="Spoken-language code for auto captions"/>
         <FIELD NAME="timecreated" TYPE="int"  LENGTH="10" NOTNULL="true"/>
         <FIELD NAME="expires_at"  TYPE="int"  LENGTH="10" NOTNULL="true"/>
       </FIELDS>
@@ -96,6 +103,22 @@
       </INDEXES>
     </TABLE>
 
+    <TABLE NAME="local_fastpix_asset_ref" COMMENT="Reference tracking: which consumers currently use an asset">
+      <FIELDS>
+        <FIELD NAME="id"           TYPE="int"  LENGTH="10"  NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="asset_id"     TYPE="int"  LENGTH="10"  NOTNULL="true"/>
+        <FIELD NAME="consumer_key" TYPE="char" LENGTH="191" NOTNULL="true" COMMENT="Opaque consumer key, e.g. mod_fastpix:&lt;cmid&gt;"/>
+        <FIELD NAME="timecreated"  TYPE="int"  LENGTH="10"  NOTNULL="true"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary"           TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_asset"          TYPE="foreign" FIELDS="asset_id" REFTABLE="local_fastpix_asset" REFFIELDS="id"/>
+        <KEY NAME="uk_asset_consumer" TYPE="unique"  FIELDS="asset_id, consumer_key"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="idx_asset" UNIQUE="false" FIELDS="asset_id"/>
+      </INDEXES>
+    </TABLE>
 
   </TABLES>
 </XMLDB>

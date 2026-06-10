@@ -45,6 +45,14 @@ $functions = [
         'ajax'         => true,
         'capabilities' => 'mod/fastpix:uploadmedia',
     ],
+    'local_fastpix_add_subtitle_track' => [
+        'classname'    => '\local_fastpix\external\add_subtitle_track',
+        'methodname'   => 'execute',
+        'description'  => 'Attach a manual subtitle track to a ready asset.',
+        'type'         => 'write',
+        'ajax'         => true,
+        'capabilities' => 'mod/fastpix:uploadmedia',
+    ],
     'local_fastpix_get_upload_status' => [
         'classname'    => '\local_fastpix\external\get_upload_status',
         'methodname'   => 'execute',
