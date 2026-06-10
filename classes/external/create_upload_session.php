@@ -105,11 +105,11 @@ class create_upload_session extends \core_external\external_api {
         );
 
         // 2. Authenticate + authorize against the COURSE context the upload
-        //    belongs to. mod/fastpix:uploadmedia is a CONTEXT_COURSE capability
-        //    (ADR-012, owned by mod_fastpix); checking it at system context
-        //    denied editing teachers while only admins (who bypass checks) passed.
-        //    get_course_context() normalises a course OR module context to its
-        //    course and throws if there is none (system context → no uploads).
+        // belongs to. mod/fastpix:uploadmedia is a CONTEXT_COURSE capability
+        // (ADR-012, owned by mod_fastpix); checking it at system context
+        // denied editing teachers while only admins (who bypass checks) passed.
+        // get_course_context() normalises a course OR module context to its
+        // course and throws if there is none (system context → no uploads).
         $context = \core\context::instance_by_id($params['contextid']);
         self::validate_context($context);
         $coursecontext = $context->get_course_context();
@@ -118,8 +118,8 @@ class create_upload_session extends \core_external\external_api {
         require_capability('mod/fastpix:uploadmedia', $coursecontext);
 
         // 3. Delegate to service layer. DRM gating, language validation and the
-        //    SSRF-free pushMediaSettings mapping all live in the service. The
-        //    courseid scopes the upload for the editor picker.
+        // SSRF-free pushMediaSettings mapping all live in the service. The
+        // courseid scopes the upload for the editor picker.
         $result = \local_fastpix\service\upload_service::instance()
             ->create_direct_upload_with_settings(
                 (int)$USER->id,
@@ -131,10 +131,10 @@ class create_upload_session extends \core_external\external_api {
             );
 
         // 4. Credentials never leave the server — only the signed upload URL.
-        //    session_id is the integer the consumer stores (mdl_fastpix.
-        //    upload_session_id is PARAM_INT) and later resolves the asset with
-        //    via asset_service::get_by_upload_session_id(); the UUID uploadid
-        //    would be truncated by PARAM_INT (see ADR-015).
+        // session_id is the integer the consumer stores (mdl_fastpix.
+        // upload_session_id is PARAM_INT) and later resolves the asset with
+        // via asset_service::get_by_upload_session_id(); the UUID uploadid
+        // would be truncated by PARAM_INT (see ADR-015).
         return [
             'session_id' => (int)$result->session_id,
             'uploadurl'  => (string)$result->upload_url,

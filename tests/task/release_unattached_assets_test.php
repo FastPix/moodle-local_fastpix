@@ -178,7 +178,7 @@ final class release_unattached_assets_test extends \advanced_testcase {
      */
     public function test_fresh_asset_not_warned(): void {
         global $DB;
-        $asset = $this->insert_asset(['timecreated' => time() - 10]); // < 60 warn threshold.
+        $asset = $this->insert_asset(['timecreated' => time() - 10]); // Under the 60s warn threshold.
 
         $this->run_task();
 
@@ -241,7 +241,7 @@ final class release_unattached_assets_test extends \advanced_testcase {
      */
     public function test_auto_release_disabled_warns_only(): void {
         global $DB;
-        // auto_release_enabled defaults to off (not set).
+        // Setting auto_release_enabled defaults to off (not set).
         $asset = $this->insert_asset([
             'timecreated'          => time() - 5 * self::GRACE,
             'unattached_warned_at' => time() - (self::LEAD + 10),

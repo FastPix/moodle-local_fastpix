@@ -270,8 +270,8 @@ public function create_direct_upload_with_settings(
         $drmconfigid,
         $this->resolve_max_resolution(null),
         $subtitles,
-        // pushMediaSettings.title — FastPix's media-title field; surfaces at
-        // the asset's data.title, which the projector reads to name the asset.
+        // The pushMediaSettings.title — FastPix's media-title field; surfaces
+        // at the asset's data.title, which the projector reads to name the asset.
         $title,
     );
 
@@ -279,7 +279,14 @@ public function create_direct_upload_with_settings(
     $uploadurl = (string)($response->data->url ?? $response->url ?? '');
 
     $session = $this->persist_session_with_settings(
-        $userid, $uploadid, $uploadurl, $title, $accesspolicy, $captionsmode, $languagecode, $courseid,
+        $userid,
+        $uploadid,
+        $uploadurl,
+        $title,
+        $accesspolicy,
+        $captionsmode,
+        $languagecode,
+        $courseid,
     );
     $cache->set($hashkey, $session->id);
 

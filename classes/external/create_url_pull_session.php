@@ -76,11 +76,11 @@ class create_url_pull_session extends \core_external\external_api {
         );
 
         // 2. Authenticate + authorize against the COURSE context the upload
-        //    belongs to. mod/fastpix:uploadmedia is a CONTEXT_COURSE capability
-        //    (ADR-012, owned by mod_fastpix); checking it at system context
-        //    denied editing teachers while only admins (who bypass checks) passed.
-        //    get_course_context() normalises a course OR module context to its
-        //    course and throws if there is none (system context → no uploads).
+        // belongs to. mod/fastpix:uploadmedia is a CONTEXT_COURSE capability
+        // (ADR-012, owned by mod_fastpix); checking it at system context
+        // denied editing teachers while only admins (who bypass checks) passed.
+        // get_course_context() normalises a course OR module context to its
+        // course and throws if there is none (system context → no uploads).
         $context = \core\context::instance_by_id($params['contextid']);
         self::validate_context($context);
         $coursecontext = $context->get_course_context();

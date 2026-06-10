@@ -44,12 +44,43 @@ final class upload_settings_endpoints_test extends \advanced_testcase {
         \cache::make('local_fastpix', 'upload_dedup')->purge();
         \cache::make('local_fastpix', 'asset')->purge();
         set_config('user_hash_salt', 'fixed-salt-for-test', 'local_fastpix');
+        $this->define_upload_capability();
     }
 
     public function tearDown(): void {
         parent::tearDown();
         \local_fastpix\service\upload_service::reset();
         \local_fastpix\api\gateway::reset();
+    }
+
+    /**
+     * Register mod/fastpix:uploadmedia for the test run. mod_fastpix owns it
+     * (ADR-012) and is not installed in standalone CI, so define it and grant
+     * it to the editing-teacher archetype the way mod_fastpix would.
+     */
+    private function define_upload_capability(): void {
+        global $DB;
+        if ($DB->record_exists('capabilities', ['name' => 'mod/fastpix:uploadmedia'])) {
+            return;
+        }
+        $DB->insert_record('capabilities', (object)[
+            'name'         => 'mod/fastpix:uploadmedia',
+            'captype'      => 'write',
+            'contextlevel' => CONTEXT_COURSE,
+            'component'    => 'mod_fastpix',
+            'riskbitmask'  => 0,
+        ]);
+        $teacherrole = $DB->get_record('role', ['archetype' => 'editingteacher'], '*', IGNORE_MULTIPLE);
+        if ($teacherrole) {
+            assign_capability(
+                'mod/fastpix:uploadmedia',
+                CAP_ALLOW,
+                $teacherrole->id,
+                \context_system::instance()->id,
+                true
+            );
+        }
+        accesslib_clear_all_caches_for_unit_testing();
     }
 
     /**
@@ -84,13 +115,15 @@ final class upload_settings_endpoints_test extends \advanced_testcase {
 
         $result = create_upload_session::execute($context->id, 'Lecture 1', 'public', 'none', '');
 
-        // session_id is the integer the consumer stores (ADR-015) — without it,
-        // PARAM_INT truncates the UUID and direct-upload playback never resolves.
+        // The session_id is the integer the consumer stores (ADR-015) — without
+        // it, PARAM_INT truncates the UUID and direct-upload playback never resolves.
         $this->assertIsInt($result['session_id']);
         $this->assertGreaterThan(0, $result['session_id']);
         $this->assertTrue(
-            $DB->record_exists('local_fastpix_upload_session',
-                ['id' => $result['session_id'], 'upload_id' => 'u-ext-1', 'userid' => (int)$teacher->id]),
+            $DB->record_exists(
+                'local_fastpix_upload_session',
+                ['id' => $result['session_id'], 'upload_id' => 'u-ext-1', 'userid' => (int)$teacher->id]
+            ),
             'create_upload_session must persist a session row owned by the uploader'
         );
         // The course context the caller passed is resolved and stamped on the row.

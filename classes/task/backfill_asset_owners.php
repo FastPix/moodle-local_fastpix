@@ -97,8 +97,10 @@ class backfill_asset_owners extends \core\task\adhoc_task {
 
         // Re-queue only when we made progress and recoverable rows remain —
         // the progress guard prevents an infinite loop on irrecoverable rows.
-        if ($updated > 0
-            && $DB->record_exists_sql("SELECT 1 " . self::RECOVERABLE_SQL)) {
+        if (
+            $updated > 0
+            && $DB->record_exists_sql("SELECT 1 " . self::RECOVERABLE_SQL)
+        ) {
             \core\task\manager::queue_adhoc_task(new self());
         }
     }

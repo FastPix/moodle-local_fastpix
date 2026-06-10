@@ -39,6 +39,42 @@ namespace local_fastpix\external;
  * @covers     \local_fastpix\external\create_url_pull_session
  */
 final class upload_endpoints_test extends \advanced_testcase {
+    public function setUp(): void {
+        parent::setUp();
+        $this->resetAfterTest();
+        $this->define_upload_capability();
+    }
+
+    /**
+     * Register mod/fastpix:uploadmedia for the test run. mod_fastpix owns it
+     * (ADR-012) and is not installed in standalone CI, so define it and grant
+     * it to the editing-teacher archetype the way mod_fastpix would.
+     */
+    private function define_upload_capability(): void {
+        global $DB;
+        if ($DB->record_exists('capabilities', ['name' => 'mod/fastpix:uploadmedia'])) {
+            return;
+        }
+        $DB->insert_record('capabilities', (object)[
+            'name'         => 'mod/fastpix:uploadmedia',
+            'captype'      => 'write',
+            'contextlevel' => CONTEXT_COURSE,
+            'component'    => 'mod_fastpix',
+            'riskbitmask'  => 0,
+        ]);
+        $teacherrole = $DB->get_record('role', ['archetype' => 'editingteacher'], '*', IGNORE_MULTIPLE);
+        if ($teacherrole) {
+            assign_capability(
+                'mod/fastpix:uploadmedia',
+                CAP_ALLOW,
+                $teacherrole->id,
+                \context_system::instance()->id,
+                true
+            );
+        }
+        accesslib_clear_all_caches_for_unit_testing();
+    }
+
     /**
      * Insert an upload_session row owned by the given user.
      *
@@ -49,7 +85,7 @@ final class upload_endpoints_test extends \advanced_testcase {
         global $DB;
         return (int)$DB->insert_record('local_fastpix_upload_session', (object)[
             'userid'      => $userid,
-            'upload_id'   => 'upl-test-0001',
+            'upload_id'   => 'upl-' . random_string(8),
             'upload_url'  => 'https://storage.example.com/upload',
             'fastpix_id'  => null,
             'source_url'  => null,

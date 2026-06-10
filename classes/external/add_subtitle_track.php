@@ -102,7 +102,7 @@ class add_subtitle_track extends \core_external\external_api {
         require_capability('mod/fastpix:uploadmedia', $context);
 
         // 3. Delegate. Owner-scope, language validation and the SSRF guard on
-        //    the .vtt URL all live in the service.
+        // the .vtt URL all live in the service.
         $result = \local_fastpix\service\upload_service::instance()
             ->add_subtitle_track(
                 (int)$USER->id,

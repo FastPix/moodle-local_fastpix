@@ -78,9 +78,9 @@ class get_upload_status extends \core_external\external_api {
         );
 
         // 2. Authenticate + authorize against the COURSE context the upload
-        //    belongs to. mod/fastpix:uploadmedia is a CONTEXT_COURSE capability
-        //    (ADR-012, owned by mod_fastpix); checking it at system context
-        //    denied editing teachers while only admins (who bypass checks) passed.
+        // belongs to. mod/fastpix:uploadmedia is a CONTEXT_COURSE capability
+        // (ADR-012, owned by mod_fastpix); checking it at system context
+        // denied editing teachers while only admins (who bypass checks) passed.
         // No sesskey: type=read, idempotent, CSRF-safe per Moodle convention.
         // get_course_context() normalises a course OR module context to its
         // course and throws if there is none (system context → no uploads).

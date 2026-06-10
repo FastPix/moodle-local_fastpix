@@ -143,8 +143,8 @@ public function input_video_direct_upload(
         ],
     ];
     if ($title !== '') {
-        // pushMediaSettings.title is FastPix's dedicated media-title field and
-        // populates the media's data.title (verified live 2026-06-09). NOT the
+        // The pushMediaSettings.title is FastPix's dedicated media-title field
+        // and populates the media's data.title (verified live 2026-06-09). NOT
         // same as metadata.title, which is just a custom key (data.metadata.*).
         $body['pushMediaSettings']['title'] = $title;
     }

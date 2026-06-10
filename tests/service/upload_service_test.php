@@ -986,7 +986,12 @@ final class upload_service_test extends \advanced_testcase {
         $this->inject_gateway_mock($mock);
 
         $resp = upload_service::instance()->create_direct_upload_with_settings(
-            7, 'My title', 'public', 'auto', 'en');
+            7,
+            'My title',
+            'public',
+            'auto',
+            'en'
+        );
 
         $this->assertSame('https://up.fastpix.com/u-set-1', $resp->upload_url);
         $this->assertSame('u-set-1', $resp->upload_id);
@@ -997,8 +1002,8 @@ final class upload_service_test extends \advanced_testcase {
         $this->assertArrayNotHasKey('title', $captured[1]);
         $this->assertSame('public', $captured[2]);
         $this->assertNull($captured[3]);
-        // subtitles is a single OBJECT (assoc array), never a list — a list
-        // is rejected by FastPix with HTTP 400.
+        // The subtitles value is a single OBJECT (assoc array), never a list —
+        // a list is rejected by FastPix with HTTP 400.
         $this->assertSame(['languageName' => 'English', 'languageCode' => 'en'], $captured[5]);
 
         $row = $DB->get_record(self::TABLE, ['upload_id' => 'u-set-1']);
@@ -1036,12 +1041,12 @@ final class upload_service_test extends \advanced_testcase {
      * @covers \local_fastpix\service\upload_service
      */
     public function test_list_ready_for_course_is_owner_course_ready_nondrm_scoped(): void {
-        $want = $this->seed_asset(10, 7, 'ready', 'public');     // ← the only match.
+        $want = $this->seed_asset(10, 7, 'ready', 'public');     // The only match.
         $this->seed_asset(10, 7, 'ready', 'drm');                 // DRM excluded.
-        $this->seed_asset(10, 7, 'created', 'public');            // not ready excluded.
-        $this->seed_asset(99, 7, 'ready', 'public');             // other course excluded.
-        $this->seed_asset(10, 8, 'ready', 'public');             // other owner excluded.
-        $this->seed_asset(10, 7, 'ready', 'public', true);       // soft-deleted excluded.
+        $this->seed_asset(10, 7, 'created', 'public');            // Not ready, excluded.
+        $this->seed_asset(99, 7, 'ready', 'public');             // Other course, excluded.
+        $this->seed_asset(10, 8, 'ready', 'public');             // Other owner, excluded.
+        $this->seed_asset(10, 7, 'ready', 'public', true);       // Soft-deleted, excluded.
 
         $list = upload_service::instance()->list_ready_for_course(10, 7);
 
@@ -1167,11 +1172,16 @@ final class upload_service_test extends \advanced_testcase {
         $this->inject_gateway_mock($mock);
 
         $resp = upload_service::instance()->create_direct_upload_with_settings(
-            7, 'T', 'public', 'none', null);
+            7,
+            'T',
+            'public',
+            'none',
+            null
+        );
         $this->assertIsInt($resp->session_id);
         $this->assertGreaterThan(0, $resp->session_id);
 
-        // media.ready for the upload's UUID links the session + stamps owner.
+        // A media.ready for the upload's UUID links the session + stamps owner.
         \cache::make('local_fastpix', 'asset')->purge();
         $event = (object)[
             'id'         => 'evt-link',
@@ -1203,7 +1213,11 @@ final class upload_service_test extends \advanced_testcase {
         $this->inject_gateway_mock($mock);
 
         $resp = upload_service::instance()->add_subtitle_track(
-            7, 'm-track-1', 'en', 'https://1.2.3.4/s.vtt');
+            7,
+            'm-track-1',
+            'en',
+            'https://1.2.3.4/s.vtt'
+        );
         $this->assertSame('trk-1', $resp->track_id);
     }
 
@@ -1220,7 +1234,11 @@ final class upload_service_test extends \advanced_testcase {
 
         $this->expectException(\local_fastpix\exception\asset_not_found::class);
         upload_service::instance()->add_subtitle_track(
-            99, 'm-track-2', 'en', 'https://1.2.3.4/s.vtt');
+            99,
+            'm-track-2',
+            'en',
+            'https://1.2.3.4/s.vtt'
+        );
     }
 
     /**
@@ -1236,6 +1254,10 @@ final class upload_service_test extends \advanced_testcase {
 
         $this->expectException(\local_fastpix\exception\ssrf_blocked::class);
         upload_service::instance()->add_subtitle_track(
-            7, 'm-track-3', 'en', 'http://localhost/s.vtt');
+            7,
+            'm-track-3',
+            'en',
+            'http://localhost/s.vtt'
+        );
     }
 }

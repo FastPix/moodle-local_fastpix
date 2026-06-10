@@ -341,8 +341,8 @@ class asset_service {
             $throttle->set($tkey, 1);
             return;
         }
-        // last_seen_at is only read by the release task (DB-direct), so we skip
-        // the asset-cache invalidation here to keep the hot render path cheap.
+        // The last_seen_at is only read by the release task (DB-direct), so we
+        // skip the asset-cache invalidation here to keep the hot render path cheap.
         $DB->set_field(self::TABLE, 'last_seen_at', time(), ['id' => (int)$asset->id]);
         $throttle->set($tkey, 1);
     }
