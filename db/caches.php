@@ -53,4 +53,13 @@ $definitions = [
         'simpledata' => true,
         'ttl'        => 60,
     ],
+    // Throttle for asset_service::touch_seen() — at most one last_seen_at write
+    // per asset per TTL window, so the filter's render heartbeat doesn't hammer
+    // the DB on every page view.
+    'seen_heartbeat' => [
+        'mode'       => cache_store::MODE_APPLICATION,
+        'simplekeys' => true,
+        'simpledata' => true,
+        'ttl'        => 3600,
+    ],
 ];

@@ -46,6 +46,11 @@ class create_url_pull_session extends \core_external\external_api {
      */
     public static function execute_parameters(): \core_external\external_function_parameters {
         return new \core_external\external_function_parameters([
+            'contextid' => new \core_external\external_value(
+                PARAM_INT,
+                'Context id of the course the upload belongs to',
+                VALUE_REQUIRED
+            ),
             'source_url' => new \core_external\external_value(
                 PARAM_URL,
                 'Public HTTPS URL of the source video (FastPix will fetch from here)',
@@ -57,31 +62,41 @@ class create_url_pull_session extends \core_external\external_api {
     /**
      * Create a URL-pull session.
      *
+     * @param int    $contextid Course context id the upload belongs to
      * @param string $sourceurl Public HTTPS URL FastPix will fetch from
      * @return array{session_id:int,upload_id:string,upload_url:string,expires_at:int,deduped:bool}
      */
-    public static function execute(string $sourceurl): array {
+    public static function execute(int $contextid, string $sourceurl): array {
         global $USER;
 
         // 1. Validate parameters first (throws invalid_parameter_exception).
         $params = self::validate_parameters(
             self::execute_parameters(),
-            ['source_url' => $sourceurl]
+            ['contextid' => $contextid, 'source_url' => $sourceurl]
         );
 
-        // 2. Authenticate + authorize.
-        $context = \context_system::instance();
+        // 2. Authenticate + authorize against the COURSE context the upload
+        //    belongs to. mod/fastpix:uploadmedia is a CONTEXT_COURSE capability
+        //    (ADR-012, owned by mod_fastpix); checking it at system context
+        //    denied editing teachers while only admins (who bypass checks) passed.
+        //    get_course_context() normalises a course OR module context to its
+        //    course and throws if there is none (system context → no uploads).
+        $context = \core\context::instance_by_id($params['contextid']);
+        self::validate_context($context);
+        $coursecontext = $context->get_course_context();
         require_login(null, false);
         require_sesskey();
-        require_capability('mod/fastpix:uploadmedia', $context);
+        require_capability('mod/fastpix:uploadmedia', $coursecontext);
 
         // 3. Delegate to service layer. SSRF allow-list runs INSIDE the service.
         // BEFORE the gateway call (rule S6, @upload-service guardrail).
         // Ssrf_blocked exceptions propagate to the caller as service errors.
+        // The courseid scopes the upload for the editor picker.
         $result = \local_fastpix\service\upload_service::instance()
             ->create_url_pull_session(
                 (int)$USER->id,
-                $params['source_url']
+                $params['source_url'],
+                courseid: (int)$coursecontext->instanceid,
             );
 
         // 4. Return matches execute_returns() structure.

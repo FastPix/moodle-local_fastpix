@@ -78,4 +78,22 @@ $tasks = [
         'dayofweek' => '*',
         'month'     => '*',
     ],
+    [
+        'classname' => '\local_fastpix\task\release_unattached_assets',
+        'blocking'  => 0,
+        'minute'    => '40',
+        'hour'      => '3',
+        'day'       => '*',
+        'dayofweek' => '*',
+        'month'     => '*',
+    ],
+    [
+        'classname' => '\local_fastpix\task\reconcile_pending_assets',
+        'blocking'  => 0,
+        'minute'    => '*/15',
+        'hour'      => '*',
+        'day'       => '*',
+        'dayofweek' => '*',
+        'month'     => '*',
+    ],
 ];

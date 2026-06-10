@@ -82,5 +82,124 @@ function xmldb_local_fastpix_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026051200, 'local', 'fastpix');
     }
 
+    // 2026060900: recover owner_userid for assets created with the 0 sentinel.
+    // Before this fix the projector never recorded the uploader, so
+    // asset_service::list_for_owner() (the tiny_fastpix picker) returned
+    // nothing. Backfill the historical backlog from the upload_session ledger
+    // via an adhoc task so a large asset table does not block the upgrade.
+    if ($oldversion < 2026060900) {
+        \core\task\manager::queue_adhoc_task(new \local_fastpix\task\backfill_asset_owners());
+        upgrade_plugin_savepoint(true, 2026060900, 'local', 'fastpix');
+    }
+
+    // 2026061000: store the chosen upload settings on the session row so the
+    // create_upload_session web service can accept title + access policy +
+    // captions and apply them to the FastPix upload.
+    if ($oldversion < 2026061000) {
+        $table = new xmldb_table('local_fastpix_upload_session');
+        $fields = [
+            new xmldb_field('title', XMLDB_TYPE_CHAR, '255', null, null, null, null, 'state'),
+            new xmldb_field('access_policy', XMLDB_TYPE_CHAR, '16', null, null, null, null, 'title'),
+            new xmldb_field('captions_mode', XMLDB_TYPE_CHAR, '8', null, null, null, null, 'access_policy'),
+            new xmldb_field('language_code', XMLDB_TYPE_CHAR, '16', null, null, null, null, 'captions_mode'),
+        ];
+        foreach ($fields as $field) {
+            if (!$dbman->field_exists($table, $field)) {
+                $dbman->add_field($table, $field);
+            }
+        }
+
+        upgrade_plugin_savepoint(true, 2026061000, 'local', 'fastpix');
+    }
+
+    // 2026061005: reference-tracking table so a shared asset is only released
+    // to FastPix when its last consumer unlinks (asset_service ref counting).
+    if ($oldversion < 2026061005) {
+        $table = new xmldb_table('local_fastpix_asset_ref');
+        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $table->add_field('asset_id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('consumer_key', XMLDB_TYPE_CHAR, '191', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $table->add_key('fk_asset', XMLDB_KEY_FOREIGN, ['asset_id'], 'local_fastpix_asset', ['id']);
+        $table->add_key('uk_asset_consumer', XMLDB_KEY_UNIQUE, ['asset_id', 'consumer_key']);
+        $index = new xmldb_index('idx_asset', XMLDB_INDEX_NOTUNIQUE, ['asset_id']);
+        if (!$dbman->table_exists($table)) {
+            $dbman->create_table($table);
+        }
+        if (!$dbman->index_exists($table, $index)) {
+            $dbman->add_index($table, $index);
+        }
+
+        upgrade_plugin_savepoint(true, 2026061005, 'local', 'fastpix');
+    }
+
+    // 2026061006: track when the owner was warned that a ready-but-unattached
+    // asset is scheduled for release, so the warning precedes removal by a
+    // configurable lead time (release_unattached_assets task, Issue 3).
+    if ($oldversion < 2026061006) {
+        $table = new xmldb_table('local_fastpix_asset');
+        $field = new xmldb_field(
+            'unattached_warned_at',
+            XMLDB_TYPE_INTEGER,
+            '10',
+            null,
+            null,
+            null,
+            null,
+            'gdpr_delete_attempts',
+        );
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_plugin_savepoint(true, 2026061006, 'local', 'fastpix');
+    }
+
+    // 2026061007: usage heartbeat. filter_fastpix stamps last_seen_at whenever
+    // it renders an embed, so release_unattached_assets never releases a video
+    // that is embedded in live content (assignment, quiz, page, etc.) even
+    // though it holds no asset_ref row.
+    if ($oldversion < 2026061007) {
+        $table = new xmldb_table('local_fastpix_asset');
+        $field = new xmldb_field(
+            'last_seen_at',
+            XMLDB_TYPE_INTEGER,
+            '10',
+            null,
+            null,
+            null,
+            null,
+            'unattached_warned_at',
+        );
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_plugin_savepoint(true, 2026061007, 'local', 'fastpix');
+    }
+
+    // 2026061009: make uploads course-aware. courseid is stamped on the upload
+    // session so the editor picker can list a teacher's ready, non-DRM videos
+    // scoped to the current course.
+    if ($oldversion < 2026061009) {
+        $table = new xmldb_table('local_fastpix_upload_session');
+        $field = new xmldb_field(
+            'courseid',
+            XMLDB_TYPE_INTEGER,
+            '10',
+            null,
+            XMLDB_NOTNULL,
+            null,
+            '0',
+            'userid',
+        );
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_plugin_savepoint(true, 2026061009, 'local', 'fastpix');
+    }
+
     return true;
 }

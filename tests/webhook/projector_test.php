@@ -765,4 +765,144 @@ final class projector_test extends \advanced_testcase {
         $this->assertDoesNotMatchRegularExpression('/eyJ[A-Za-z0-9_-]{10,}/', $log);
         $this->assertDebuggingCalled();
     }
+
+    // Title resolution from data.metadata.title.
+
+    /**
+     * The asset title is read from data.metadata.title (where FastPix surfaces
+     * the title local_fastpix sent via pushMediaSettings.metadata.title).
+     *
+     * @covers \local_fastpix\webhook\projector
+     */
+    public function test_title_read_from_metadata(): void {
+        global $DB;
+        $fpid = 'media-meta-title';
+        $event = $this->build_event('video.media.created', $fpid, [
+            'data' => (object)[
+                'metadata' => (object)['title' => 'Lecture One'],
+                'status'   => 'created',
+            ],
+        ]);
+        (new projector())->project($event);
+
+        $row = $DB->get_record(self::TABLE, ['fastpix_id' => $fpid]);
+        $this->assertSame('Lecture One', $row->title);
+    }
+
+    /**
+     * data.title (FastPix's real media-title field) wins over the legacy
+     * data.metadata.title custom key.
+     *
+     * @covers \local_fastpix\webhook\projector
+     */
+    public function test_data_title_preferred_over_metadata(): void {
+        global $DB;
+        $fpid = 'media-title-pref';
+        $event = $this->build_event('video.media.created', $fpid, [
+            'data' => (object)[
+                'title'    => 'real title',
+                'metadata' => (object)['title' => 'legacy meta title'],
+                'status'   => 'created',
+            ],
+        ]);
+        (new projector())->project($event);
+
+        $row = $DB->get_record(self::TABLE, ['fastpix_id' => $fpid]);
+        $this->assertSame('real title', $row->title);
+    }
+
+    /**
+     * Falls back to a synthetic title when neither field is present.
+     *
+     * @covers \local_fastpix\webhook\projector
+     */
+    public function test_title_falls_back_when_absent(): void {
+        global $DB;
+        $fpid = 'media-no-title';
+        $event = $this->ready_event($fpid, [(object)['id' => 'pb-nt', 'accessPolicy' => 'public']]);
+        (new projector())->project($event);
+
+        $row = $DB->get_record(self::TABLE, ['fastpix_id' => $fpid]);
+        $this->assertSame("Asset {$fpid}", $row->title);
+    }
+
+    // Owner backfill from upload_session (tiny_fastpix picker bug).
+
+    /**
+     * Helper: insert an upload_session row (uploader id + shared upload id).
+     *
+     * @param int $userid
+     * @param string $uploadid Carries the same UUID as the media asset.
+     * @return int Inserted session id
+     */
+    private function insert_session(int $userid, string $uploadid): int {
+        global $DB;
+        $now = time();
+        return (int)$DB->insert_record('local_fastpix_upload_session', (object)[
+            'userid'      => $userid,
+            'upload_id'   => $uploadid,
+            'upload_url'  => 'https://example.invalid/u',
+            'fastpix_id'  => null,
+            'source_url'  => null,
+            'state'       => 'pending',
+            'timecreated' => $now,
+            'expires_at'  => $now + 3600,
+        ]);
+    }
+
+    /**
+     * A media.ready projection backfills owner_userid from the matching
+     * upload_session — the exact production path the picker depends on.
+     *
+     * @covers \local_fastpix\webhook\projector
+     */
+    public function test_owner_backfilled_from_upload_session(): void {
+        global $DB;
+        $user = $this->getDataGenerator()->create_user();
+        $fpid = 'media-' . random_string(8);
+        $this->insert_session((int)$user->id, $fpid);
+
+        $event = $this->ready_event($fpid, [(object)['id' => 'pb-' . random_string(6), 'accessPolicy' => 'public']]);
+        (new projector())->project($event);
+
+        $row = $DB->get_record(self::TABLE, ['fastpix_id' => $fpid]);
+        $this->assertSame('ready', $row->status);
+        $this->assertEquals((int)$user->id, (int)$row->owner_userid);
+    }
+
+    /**
+     * An owner already set is never overwritten by a later projection.
+     *
+     * @covers \local_fastpix\webhook\projector
+     */
+    public function test_owner_not_overwritten_when_already_set(): void {
+        global $DB;
+        $owner = $this->getDataGenerator()->create_user();
+        $other = $this->getDataGenerator()->create_user();
+        $fpid = 'media-' . random_string(8);
+        $this->insert_asset(['fastpix_id' => $fpid, 'owner_userid' => (int)$owner->id, 'status' => 'created']);
+        $this->insert_session((int)$other->id, $fpid);
+
+        $event = $this->ready_event($fpid, [(object)['id' => 'pb-' . random_string(6), 'accessPolicy' => 'public']]);
+        (new projector())->project($event);
+
+        $row = $DB->get_record(self::TABLE, ['fastpix_id' => $fpid]);
+        $this->assertEquals((int)$owner->id, (int)$row->owner_userid);
+    }
+
+    /**
+     * No matching session leaves the sentinel owner (0) untouched.
+     *
+     * @covers \local_fastpix\webhook\projector
+     */
+    public function test_owner_stays_sentinel_without_session(): void {
+        global $DB;
+        $fpid = 'media-' . random_string(8);
+
+        $event = $this->ready_event($fpid, [(object)['id' => 'pb-' . random_string(6), 'accessPolicy' => 'public']]);
+        (new projector())->project($event);
+
+        $row = $DB->get_record(self::TABLE, ['fastpix_id' => $fpid]);
+        $this->assertSame(0, (int)$row->owner_userid);
+    }
 }

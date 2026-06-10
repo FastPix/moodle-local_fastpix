@@ -25,6 +25,10 @@ Maturity: `MATURITY_STABLE`, release `1.0.0`, version `2026052100`.
   surface in ADR-013.
 - Gateway is the only HTTP boundary (rule A2). Pinned to IPv4 via
   `force_ip_resolve` to avoid Docker-bridge IPv6 dead-ends.
+- Uploads are course-aware (1.1.0): the upload web services authorise
+  `mod/fastpix:uploadmedia` at the course context and stamp `courseid`
+  on the upload session, so editing teachers can upload, students are
+  blocked, and the editor picker can list videos by course.
 
 ### Webhooks
 - Verifier accepts FastPix's canonical signature shape

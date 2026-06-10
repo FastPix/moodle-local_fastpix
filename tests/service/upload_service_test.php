@@ -914,10 +914,11 @@ final class upload_service_test extends \advanced_testcase {
         $this->assertFalse($resp->deduped);
 
         // Gateway received metadata only — no 'file', 'body', or 'bytes'
-        // arg of any kind. The fixed arity here is part of the A1/A2
-        // contract; if a sixth byte-carrying arg is ever introduced this
-        // assertion fails and routes back to @upload-service.
-        $this->assertCount(5, $capturedargs);
+        // arg of any kind. The trailing arg is the (null here) subtitles bag,
+        // not a byte channel; the loop below proves no arg carries bytes.
+        $this->assertCount(7, $capturedargs);
+        $this->assertNull($capturedargs[5], 'subtitles must be null for a no-captions file upload');
+        $this->assertSame('', $capturedargs[6], 'title is empty on the legacy metadata-only file path');
         foreach ($capturedargs as $i => $arg) {
             $this->assertNotInstanceOf(\SplFileObject::class, $arg, "arg $i is a file handle");
             if (is_string($arg)) {
@@ -933,5 +934,308 @@ final class upload_service_test extends \advanced_testcase {
             $after - $before,
             'create_file_upload_session allocated >4MiB for a 5GB upload — bytes are being buffered'
         );
+    }
+
+    // Settings-based direct upload (title + access policy + captions).
+
+    /**
+     * Helper: insert a ready asset owned by the given user.
+     *
+     * @param string $fastpixid
+     * @param int $owner
+     * @return void
+     */
+    private function insert_ready_asset(string $fastpixid, int $owner): void {
+        global $DB;
+        $now = time();
+        $DB->insert_record('local_fastpix_asset', (object)[
+            'fastpix_id'    => $fastpixid,
+            'playback_id'   => null,
+            'owner_userid'  => $owner,
+            'title'         => 'T',
+            'status'        => 'ready',
+            'access_policy' => 'public',
+            'drm_required'  => 0,
+            'no_skip_required' => 0,
+            'has_captions'  => 0,
+            'timecreated'   => $now,
+            'timemodified'  => $now,
+        ]);
+        \cache::make('local_fastpix', 'asset')->purge();
+    }
+
+    /**
+     * Happy path: title + public policy + auto captions map onto the upload
+     * and the session row is stamped with the chosen settings.
+     *
+     * @covers \local_fastpix\service\upload_service
+     */
+    public function test_create_with_settings_maps_title_policy_captions(): void {
+        global $DB;
+        set_config('user_hash_salt', 'fixed-salt-for-test', 'local_fastpix');
+        $captured = null;
+        $mock = $this->createMock(\local_fastpix\api\gateway::class);
+        $mock->method('input_video_direct_upload')
+            ->willReturnCallback(function (...$args) use (&$captured) {
+                $captured = $args;
+                return (object)['data' => (object)[
+                    'uploadId' => 'u-set-1',
+                    'url'      => 'https://up.fastpix.com/u-set-1',
+                ]];
+            });
+        $this->inject_gateway_mock($mock);
+
+        $resp = upload_service::instance()->create_direct_upload_with_settings(
+            7, 'My title', 'public', 'auto', 'en');
+
+        $this->assertSame('https://up.fastpix.com/u-set-1', $resp->upload_url);
+        $this->assertSame('u-set-1', $resp->upload_id);
+        // Args: ownerhash, metadata, accesspolicy, drmconfigid, maxresolution, subtitles, title.
+        // The title is FastPix's dedicated pushMediaSettings.title field (arg 6)
+        // — NOT a metadata key — and it sets the media's data.title.
+        $this->assertSame('My title', $captured[6]);
+        $this->assertArrayNotHasKey('title', $captured[1]);
+        $this->assertSame('public', $captured[2]);
+        $this->assertNull($captured[3]);
+        // subtitles is a single OBJECT (assoc array), never a list — a list
+        // is rejected by FastPix with HTTP 400.
+        $this->assertSame(['languageName' => 'English', 'languageCode' => 'en'], $captured[5]);
+
+        $row = $DB->get_record(self::TABLE, ['upload_id' => 'u-set-1']);
+        $this->assertSame('My title', $row->title);
+        $this->assertSame('public', $row->access_policy);
+        $this->assertSame('auto', $row->captions_mode);
+        $this->assertSame('en', $row->language_code);
+        $this->assertEquals(7, (int)$row->userid);
+    }
+
+    /**
+     * The chosen courseid is persisted on the upload session (course-aware
+     * uploads).
+     *
+     * @covers \local_fastpix\service\upload_service
+     */
+    public function test_create_with_settings_persists_courseid(): void {
+        global $DB;
+        set_config('user_hash_salt', 'fixed-salt-for-test', 'local_fastpix');
+        $mock = $this->createMock(\local_fastpix\api\gateway::class);
+        $mock->method('input_video_direct_upload')->willReturn((object)['data' => (object)[
+            'uploadId' => 'u-course-1', 'url' => 'https://up/x',
+        ]]);
+        $this->inject_gateway_mock($mock);
+
+        upload_service::instance()->create_direct_upload_with_settings(7, 'T', 'public', 'none', null, 55);
+
+        $this->assertEquals(55, (int)$DB->get_field(self::TABLE, 'courseid', ['upload_id' => 'u-course-1']));
+    }
+
+    /**
+     * list_ready_for_course returns only the caller's ready, non-DRM,
+     * non-deleted videos in the given course.
+     *
+     * @covers \local_fastpix\service\upload_service
+     */
+    public function test_list_ready_for_course_is_owner_course_ready_nondrm_scoped(): void {
+        $want = $this->seed_asset(10, 7, 'ready', 'public');     // ← the only match.
+        $this->seed_asset(10, 7, 'ready', 'drm');                 // DRM excluded.
+        $this->seed_asset(10, 7, 'created', 'public');            // not ready excluded.
+        $this->seed_asset(99, 7, 'ready', 'public');             // other course excluded.
+        $this->seed_asset(10, 8, 'ready', 'public');             // other owner excluded.
+        $this->seed_asset(10, 7, 'ready', 'public', true);       // soft-deleted excluded.
+
+        $list = upload_service::instance()->list_ready_for_course(10, 7);
+
+        $this->assertCount(1, $list);
+        $this->assertSame($want, $list[0]->fastpix_id);
+    }
+
+    /**
+     * Seed a linked asset + upload_session pair; returns the fastpix_id.
+     *
+     * @param int $courseid
+     * @param int $owner
+     * @param string $status
+     * @param string $policy
+     * @param bool $deleted
+     * @return string
+     */
+    private function seed_asset(int $courseid, int $owner, string $status, string $policy, bool $deleted = false): string {
+        global $DB;
+        $now = time();
+        $fpid = 'media-' . random_string(8);
+        $DB->insert_record('local_fastpix_asset', (object)[
+            'fastpix_id'    => $fpid,
+            'playback_id'   => 'pb-' . random_string(6),
+            'owner_userid'  => $owner,
+            'title'         => 'T',
+            'status'        => $status,
+            'access_policy' => $policy,
+            'drm_required'  => $policy === 'drm' ? 1 : 0,
+            'no_skip_required' => 0,
+            'has_captions'  => 0,
+            'deleted_at'    => $deleted ? $now : null,
+            'timecreated'   => $now,
+            'timemodified'  => $now,
+        ]);
+        $DB->insert_record('local_fastpix_upload_session', (object)[
+            'userid'      => $owner,
+            'courseid'    => $courseid,
+            'upload_id'   => 'upl-' . random_string(8),
+            'upload_url'  => 'https://up/x',
+            'fastpix_id'  => $fpid,
+            'state'       => 'created',
+            'timecreated' => $now,
+            'expires_at'  => $now + 3600,
+        ]);
+        return $fpid;
+    }
+
+    /**
+     * DRM intent sends FastPix accessPolicy 'drm' + drmConfigurationId.
+     * (accessPolicy 'private' + a config id is rejected by FastPix with 400.)
+     *
+     * @covers \local_fastpix\service\upload_service
+     */
+    public function test_create_with_settings_drm_sends_drm_policy_plus_config(): void {
+        global $DB;
+        set_config('user_hash_salt', 'fixed-salt-for-test', 'local_fastpix');
+        set_config('feature_drm_enabled', '1', 'local_fastpix');
+        set_config('drm_configuration_id', 'drm-cfg-123', 'local_fastpix');
+        $captured = null;
+        $mock = $this->createMock(\local_fastpix\api\gateway::class);
+        $mock->method('input_video_direct_upload')
+            ->willReturnCallback(function (...$args) use (&$captured) {
+                $captured = $args;
+                return (object)['data' => (object)['uploadId' => 'u-drm', 'url' => 'https://up/x']];
+            });
+        $this->inject_gateway_mock($mock);
+
+        upload_service::instance()->create_direct_upload_with_settings(7, 'T', 'drm', 'none', null);
+
+        $this->assertSame('drm', $captured[2]);
+        $this->assertSame('drm-cfg-123', $captured[3]);
+        $row = $DB->get_record(self::TABLE, ['upload_id' => 'u-drm']);
+        $this->assertSame('drm', $row->access_policy);
+    }
+
+    /**
+     * DRM requested but not configured fails hard — no gateway call, no
+     * silent downgrade (W12).
+     *
+     * @covers \local_fastpix\service\upload_service
+     */
+    public function test_create_with_settings_drm_without_config_fails(): void {
+        set_config('user_hash_salt', 'fixed-salt-for-test', 'local_fastpix');
+        $mock = $this->createMock(\local_fastpix\api\gateway::class);
+        $mock->expects($this->never())->method('input_video_direct_upload');
+        $this->inject_gateway_mock($mock);
+
+        $this->expectException(\local_fastpix\exception\drm_not_configured::class);
+        upload_service::instance()->create_direct_upload_with_settings(7, 'T', 'drm', 'none', null);
+    }
+
+    /**
+     * An unsupported auto-caption language fails before any gateway call.
+     *
+     * @covers \local_fastpix\service\upload_service
+     */
+    public function test_create_with_settings_unsupported_language_fails(): void {
+        set_config('user_hash_salt', 'fixed-salt-for-test', 'local_fastpix');
+        $mock = $this->createMock(\local_fastpix\api\gateway::class);
+        $mock->expects($this->never())->method('input_video_direct_upload');
+        $this->inject_gateway_mock($mock);
+
+        $this->expectException(\invalid_parameter_exception::class);
+        upload_service::instance()->create_direct_upload_with_settings(7, 'T', 'public', 'auto', 'zz');
+    }
+
+    /**
+     * End-to-end (ADR-015): a direct-upload session returns an integer
+     * session_id, and the media.ready webhook links that session to the asset
+     * and stamps the owner — so get_by_upload_session_id() resolves for
+     * playback. This is the exact chain direct-upload playback depends on.
+     *
+     * @covers \local_fastpix\service\upload_service
+     */
+    public function test_direct_upload_session_links_to_asset_and_sets_owner(): void {
+        set_config('user_hash_salt', 'fixed-salt-for-test', 'local_fastpix');
+        $mock = $this->createMock(\local_fastpix\api\gateway::class);
+        $mock->method('input_video_direct_upload')->willReturn((object)['data' => (object)[
+            'uploadId' => 'm-link-1',
+            'url'      => 'https://up.fastpix.com/m-link-1',
+        ]]);
+        $this->inject_gateway_mock($mock);
+
+        $resp = upload_service::instance()->create_direct_upload_with_settings(
+            7, 'T', 'public', 'none', null);
+        $this->assertIsInt($resp->session_id);
+        $this->assertGreaterThan(0, $resp->session_id);
+
+        // media.ready for the upload's UUID links the session + stamps owner.
+        \cache::make('local_fastpix', 'asset')->purge();
+        $event = (object)[
+            'id'         => 'evt-link',
+            'type'       => 'video.media.ready',
+            'occurredAt' => time(),
+            'object'     => (object)['type' => 'media', 'id' => 'm-link-1'],
+            'data'       => (object)['playbackIds' => [
+                (object)['id' => 'pb-link', 'accessPolicy' => 'public'],
+            ]],
+        ];
+        (new \local_fastpix\webhook\projector())->project($event);
+
+        $asset = \local_fastpix\service\asset_service::get_by_upload_session_id((int)$resp->session_id);
+        $this->assertNotNull($asset);
+        $this->assertSame('m-link-1', $asset->fastpix_id);
+        $this->assertEquals(7, (int)$asset->owner_userid);
+    }
+
+    /**
+     * add_subtitle_track happy path for the owner.
+     *
+     * @covers \local_fastpix\service\upload_service
+     */
+    public function test_add_subtitle_track_owner_happy_path(): void {
+        $this->insert_ready_asset('m-track-1', 7);
+        $mock = $this->createMock(\local_fastpix\api\gateway::class);
+        $mock->method('add_media_track')
+            ->willReturn((object)['data' => (object)['id' => 'trk-1']]);
+        $this->inject_gateway_mock($mock);
+
+        $resp = upload_service::instance()->add_subtitle_track(
+            7, 'm-track-1', 'en', 'https://1.2.3.4/s.vtt');
+        $this->assertSame('trk-1', $resp->track_id);
+    }
+
+    /**
+     * add_subtitle_track refuses a non-owner (looks like not-found).
+     *
+     * @covers \local_fastpix\service\upload_service
+     */
+    public function test_add_subtitle_track_denies_non_owner(): void {
+        $this->insert_ready_asset('m-track-2', 7);
+        $mock = $this->createMock(\local_fastpix\api\gateway::class);
+        $mock->expects($this->never())->method('add_media_track');
+        $this->inject_gateway_mock($mock);
+
+        $this->expectException(\local_fastpix\exception\asset_not_found::class);
+        upload_service::instance()->add_subtitle_track(
+            99, 'm-track-2', 'en', 'https://1.2.3.4/s.vtt');
+    }
+
+    /**
+     * add_subtitle_track applies the SSRF allow-list to the .vtt URL.
+     *
+     * @covers \local_fastpix\service\upload_service
+     */
+    public function test_add_subtitle_track_blocks_ssrf_vtt(): void {
+        $this->insert_ready_asset('m-track-3', 7);
+        $mock = $this->createMock(\local_fastpix\api\gateway::class);
+        $mock->expects($this->never())->method('add_media_track');
+        $this->inject_gateway_mock($mock);
+
+        $this->expectException(\local_fastpix\exception\ssrf_blocked::class);
+        upload_service::instance()->add_subtitle_track(
+            7, 'm-track-3', 'en', 'http://localhost/s.vtt');
     }
 }

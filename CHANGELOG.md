@@ -4,6 +4,33 @@ All notable changes to `local_fastpix` are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project follows [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] — 2026-06-10
+
+Course-aware uploads and a course-context permission fix.
+
+### Added
+- `courseid` is recorded on each upload session (new column on
+  `local_fastpix_upload_session`), stamped when the upload starts, so the
+  editor video picker can list a teacher's videos scoped to the current
+  course. `upload_service::list_ready_for_course()` returns a user's ready,
+  non-DRM videos for a course.
+
+### Changed
+- The upload web services — `create_upload_session`,
+  `create_url_pull_session`, and `get_upload_status` — now take a required
+  `contextid` and authorise `mod/fastpix:uploadmedia` against the course
+  context (`validate_context()` plus `require_capability()` on the course
+  context resolved with `get_course_context()`) instead of the system
+  context.
+
+### Fixed
+- Editing teachers were wrongly denied upload: the capability was checked at
+  the system context, where the course-level `mod/fastpix:uploadmedia` never
+  grants, so only site administrators succeeded (by bypassing capability
+  checks). Permission is now evaluated at the course context — enrolled
+  editing teachers can upload, and enrolled students are correctly blocked
+  from uploading or embedding while still able to view.
+
 ## [1.0.0] — 2026-05-21
 
 Initial release. FastPix video integration foundation plugin for

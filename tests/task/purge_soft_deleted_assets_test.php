@@ -41,6 +41,26 @@ final class purge_soft_deleted_assets_test extends \advanced_testcase {
         parent::setUp();
         $this->resetAfterTest();
         \cache::make('local_fastpix', 'asset')->purge();
+        \local_fastpix\api\gateway::reset();
+        // Default: a gateway whose delete_media succeeds silently, so no test
+        // touches the network. Individual tests can override via set_gateway().
+        $this->set_gateway($this->createMock(\local_fastpix\api\gateway::class));
+    }
+
+    public function tearDown(): void {
+        parent::tearDown();
+        \local_fastpix\api\gateway::reset();
+    }
+
+    /**
+     * Install a gateway instance (mock) as the singleton.
+     *
+     * @param mixed $gateway
+     */
+    private function set_gateway($gateway): void {
+        $prop = (new \ReflectionClass(\local_fastpix\api\gateway::class))->getProperty('instance');
+        $prop->setAccessible(true);
+        $prop->setValue(null, $gateway);
     }
 
     /**
@@ -196,5 +216,50 @@ public function test_batch_caps_per_run_and_leaves_remaining(): void {
         ['cutoff' => time() - 7 * self::DAY],
     );
     $this->assertSame(1, $remaining);
+}
+
+    /**
+     * The FastPix asset is deleted (gateway::delete_media) before the local
+     * row is purged.
+     *
+     * @covers \local_fastpix\task\purge_soft_deleted_assets
+     */
+public function test_deletes_fastpix_asset_before_purge(): void {
+    global $DB;
+    $row = $this->insert_asset(time() - 8 * self::DAY);
+
+    $gateway = $this->createMock(\local_fastpix\api\gateway::class);
+    $gateway->expects($this->once())
+        ->method('delete_media')
+        ->with($row->fastpix_id);
+    $this->set_gateway($gateway);
+
+    $this->run_task();
+
+    $this->assertFalse($DB->record_exists(self::ASSET_TABLE, ['id' => $row->id]));
+}
+
+    /**
+     * When FastPix is unreachable, the row is NOT purged — it's stamped
+     * gdpr_delete_pending_at so retry_gdpr_delete takes over.
+     *
+     * @covers \local_fastpix\task\purge_soft_deleted_assets
+     */
+public function test_defers_to_gdpr_retry_on_fastpix_delete_failure(): void {
+    global $DB;
+    $row = $this->insert_asset(time() - 8 * self::DAY);
+
+    $gateway = $this->createMock(\local_fastpix\api\gateway::class);
+    $gateway->method('delete_media')
+        ->willThrowException(new \local_fastpix\exception\gateway_unavailable('boom'));
+    $this->set_gateway($gateway);
+
+    $this->run_task();
+
+    $this->assertTrue($DB->record_exists(self::ASSET_TABLE, ['id' => $row->id]), 'row kept for retry');
+    $this->assertNotEmpty(
+        $DB->get_field(self::ASSET_TABLE, 'gdpr_delete_pending_at', ['id' => $row->id]),
+        'failure → handed off to GDPR retry'
+    );
 }
 }
