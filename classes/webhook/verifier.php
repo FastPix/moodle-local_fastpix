@@ -44,9 +44,11 @@ class verifier {
     private static ?self $instance = null;
 
     /**
-     * Constructor.
-     */    private function __construct() {
-}
+     * Private constructor — instantiate via the instance() singleton accessor.
+     */
+    private function __construct() {
+        // Intentionally empty: this is a stateless singleton; no per-instance state.
+    }
 
     /**
      * Singleton accessor.
@@ -80,6 +82,22 @@ public function verify(string $rawbody, string $signatureheader): bool {
     }
 
     $current = (string)get_config('local_fastpix', 'webhook_secret_current');
+    if (!$this->current_secret_usable($current)) {
+        return false;
+    }
+
+    return $this->matches_either_format($rawbody, $current, $signatureheader)
+        || $this->matches_previous_secret($rawbody, $signatureheader);
+}
+
+    /**
+     * Validate the configured current secret: present and at least MIN_SECRET_BYTES.
+     * Logs the appropriate diagnostic on each rejection path; never throws (rule S2).
+     *
+     * @param string $current
+     * @return bool
+     */
+private function current_secret_usable(string $current): bool {
     if (strlen($current) < 1) {
         debugging('webhook signature verify: current secret not configured', DEBUG_DEVELOPER);
         return false;
@@ -89,23 +107,32 @@ public function verify(string $rawbody, string $signatureheader): bool {
         return false;
     }
 
-    if ($this->matches_either_format($rawbody, $current, $signatureheader)) {
-        return true;
-    }
+    return true;
+}
 
+    /**
+     * Verify against the previous secret, honouring the 30-minute rotation window (rule S7).
+     * Returns false when no previous secret is set, the window has elapsed, or the secret
+     * is too short. The short-secret path logs once and never throws (rule S2).
+     *
+     * @param string $rawbody
+     * @param string $signatureheader
+     * @return bool
+     */
+private function matches_previous_secret(string $rawbody, string $signatureheader): bool {
     $previous = (string)get_config('local_fastpix', 'webhook_secret_previous');
     $rotatedat = (int)get_config('local_fastpix', 'webhook_secret_rotated_at');
-    if ($previous !== '' && ($rotatedat > 0) && (time() - $rotatedat) < self::ROTATION_WINDOW) {
-        if (strlen($previous) < self::MIN_SECRET_BYTES) {
-            $this->log_short_secret('previous', strlen($previous));
-            return false;
-        }
-        if ($this->matches_either_format($rawbody, $previous, $signatureheader)) {
-            return true;
-        }
+
+    $withinwindow = $previous !== '' && $rotatedat > 0 && (time() - $rotatedat) < self::ROTATION_WINDOW;
+    if (!$withinwindow) {
+        return false;
+    }
+    if (strlen($previous) < self::MIN_SECRET_BYTES) {
+        $this->log_short_secret('previous', strlen($previous));
+        return false;
     }
 
-    return false;
+    return $this->matches_either_format($rawbody, $previous, $signatureheader);
 }
 
     /**
@@ -125,34 +152,51 @@ public function verify(string $rawbody, string $signatureheader): bool {
      * @return bool
      */
 private function matches_either_format(string $rawbody, string $secret, string $signatureheader): bool {
-    // FastPix canonical: secret is base64; output is base64.
     $decodedsecret = base64_decode($secret, true);
-    if ($decodedsecret !== false && $decodedsecret !== '') {
-        $rawhmac = hash_hmac(self::HMAC_ALGO, $rawbody, $decodedsecret, true);
-        if ($this->constant_time_compare(base64_encode($rawhmac), $signatureheader)) {
-            return true;
-        }
-    }
 
-    // Test-only fallbacks. Gated by a constant the production bootstrap.
-    // Never defines; tests opt in by defining it before driving verify().
-    if (defined('LOCAL_FASTPIX_DEBUG_VERIFIER') && LOCAL_FASTPIX_DEBUG_VERIFIER) {
-        if ($decodedsecret !== false && $decodedsecret !== '') {
-            $rawhmac = hash_hmac(self::HMAC_ALGO, $rawbody, $decodedsecret, true);
-            if ($this->constant_time_compare(bin2hex($rawhmac), $signatureheader)) {
-                return true;
-            }
-        }
-        $rawhmacstr = hash_hmac(self::HMAC_ALGO, $rawbody, $secret, true);
-        if ($this->constant_time_compare(base64_encode($rawhmacstr), $signatureheader)) {
-            return true;
-        }
-        if ($this->constant_time_compare(bin2hex($rawhmacstr), $signatureheader)) {
+    foreach ($this->candidate_signatures($rawbody, $secret, $decodedsecret) as $candidate) {
+        if ($this->constant_time_compare($candidate, $signatureheader)) {
             return true;
         }
     }
 
     return false;
+}
+
+    /**
+     * Build the ordered list of acceptable signature encodings for a secret.
+     * The first entry is the FastPix canonical shape (base64 secret, base64 output).
+     * The three legacy fallbacks (hex of canonical, raw-string base64, raw-string hex)
+     * are appended ONLY when LOCAL_FASTPIX_DEBUG_VERIFIER is defined, keeping the
+     * production attack surface to the single canonical form. All values are compared
+     * with hash_equals by the caller (rule S3).
+     *
+     * @param string $rawbody
+     * @param string $secret
+     * @param string|false $decodedsecret base64_decode($secret) result
+     * @return string[]
+     */
+private function candidate_signatures(string $rawbody, string $secret, $decodedsecret): array {
+    $candidates = [];
+
+    // FastPix canonical: secret is base64; output is base64.
+    if ($decodedsecret !== false && $decodedsecret !== '') {
+        $rawhmac = hash_hmac(self::HMAC_ALGO, $rawbody, $decodedsecret, true);
+        $candidates[] = base64_encode($rawhmac);
+    }
+
+    // Test-only fallbacks. Gated by a constant the production bootstrap never
+    // defines; tests opt in by defining it before driving verify().
+    if (defined('LOCAL_FASTPIX_DEBUG_VERIFIER') && LOCAL_FASTPIX_DEBUG_VERIFIER) {
+        if ($decodedsecret !== false && $decodedsecret !== '') {
+            $candidates[] = bin2hex(hash_hmac(self::HMAC_ALGO, $rawbody, $decodedsecret, true));
+        }
+        $rawhmacstr = hash_hmac(self::HMAC_ALGO, $rawbody, $secret, true);
+        $candidates[] = base64_encode($rawhmacstr);
+        $candidates[] = bin2hex($rawhmacstr);
+    }
+
+    return $candidates;
 }
 
     /**

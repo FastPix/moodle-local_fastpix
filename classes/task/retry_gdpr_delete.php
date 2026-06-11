@@ -53,6 +53,9 @@ class retry_gdpr_delete extends \core\task\scheduled_task {
      */
     private const MAX_ATTEMPTS = 10;
 
+    /** @var string Asset table name. */
+    private const TABLE = 'local_fastpix_asset';
+
     /**
      * Get name.
      *
@@ -64,7 +67,8 @@ class retry_gdpr_delete extends \core\task\scheduled_task {
 
     /**
      * Web service main entry point.
-     */    public function execute(): void {
+     */
+    public function execute(): void {
         global $DB;
 
         $sql = "SELECT id, fastpix_id, gdpr_delete_pending_at, gdpr_delete_attempts
@@ -108,7 +112,7 @@ class retry_gdpr_delete extends \core\task\scheduled_task {
             // PHP process would loop forever.
             $nextattempt = ((int)$asset->gdpr_delete_attempts) + 1;
             $DB->set_field(
-                'local_fastpix_asset',
+                self::TABLE,
                 'gdpr_delete_attempts',
                 $nextattempt,
                 ['id' => $asset->id],
@@ -118,22 +122,12 @@ class retry_gdpr_delete extends \core\task\scheduled_task {
                 $gateway->delete_media($asset->fastpix_id);
                 // Success: clear the pending flag. Local row stays soft-deleted.
                 // (cleanup task purges after retention window).
-                $DB->set_field(
-                    'local_fastpix_asset',
-                    'gdpr_delete_pending_at',
-                    null,
-                    ['id' => $asset->id]
-                );
+                $this->clear_pending((int)$asset->id);
                 $success++;
             } catch (\local_fastpix\exception\gateway_not_found $e) {
                 // 404 From FastPix means the asset is already gone there.
                 // Treat as success — nothing to retry.
-                $DB->set_field(
-                    'local_fastpix_asset',
-                    'gdpr_delete_pending_at',
-                    null,
-                    ['id' => $asset->id]
-                );
+                $this->clear_pending((int)$asset->id);
                 $success++;
             } catch (\Throwable $e) {
                 $failed++;
@@ -173,5 +167,16 @@ class retry_gdpr_delete extends \core\task\scheduled_task {
             $skipped,
             $latencyms
         ));
-}
+    }
+
+    /**
+     * Clear the GDPR-pending flag on an asset whose remote delete has
+     * completed (either succeeded, or 404'd as already-gone).
+     *
+     * @param int $assetid
+     */
+    private function clear_pending(int $assetid): void {
+        global $DB;
+        $DB->set_field(self::TABLE, 'gdpr_delete_pending_at', null, ['id' => $assetid]);
+    }
 }

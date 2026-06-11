@@ -39,6 +39,11 @@ namespace local_fastpix\external;
  * @covers     \local_fastpix\external\create_url_pull_session
  */
 final class upload_endpoints_test extends \advanced_testcase {
+    /** @var string Capability under test (owned by mod_fastpix, ADR-012). */
+    private const CAP_UPLOAD = 'mod/fastpix:uploadmedia';
+    /** @var string Archetype granted the upload capability. */
+    private const ROLE_TEACHER = 'editingteacher';
+
     public function setUp(): void {
         parent::setUp();
         $this->resetAfterTest();
@@ -52,20 +57,20 @@ final class upload_endpoints_test extends \advanced_testcase {
      */
     private function define_upload_capability(): void {
         global $DB;
-        if ($DB->record_exists('capabilities', ['name' => 'mod/fastpix:uploadmedia'])) {
+        if ($DB->record_exists('capabilities', ['name' => self::CAP_UPLOAD])) {
             return;
         }
         $DB->insert_record('capabilities', (object)[
-            'name'         => 'mod/fastpix:uploadmedia',
+            'name'         => self::CAP_UPLOAD,
             'captype'      => 'write',
             'contextlevel' => CONTEXT_COURSE,
             'component'    => 'mod_fastpix',
             'riskbitmask'  => 0,
         ]);
-        $teacherrole = $DB->get_record('role', ['archetype' => 'editingteacher'], '*', IGNORE_MULTIPLE);
+        $teacherrole = $DB->get_record('role', ['archetype' => self::ROLE_TEACHER], '*', IGNORE_MULTIPLE);
         if ($teacherrole) {
             assign_capability(
-                'mod/fastpix:uploadmedia',
+                self::CAP_UPLOAD,
                 CAP_ALLOW,
                 $teacherrole->id,
                 \context_system::instance()->id,
@@ -102,7 +107,7 @@ final class upload_endpoints_test extends \advanced_testcase {
         $this->resetAfterTest();
         $course = $this->getDataGenerator()->create_course();
         $context = \context_course::instance($course->id);
-        $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
+        $teacher = $this->getDataGenerator()->create_and_enrol($course, self::ROLE_TEACHER);
         $sessionid = $this->seed_session((int)$teacher->id);
 
         $this->setUser($teacher);
@@ -151,7 +156,7 @@ final class upload_endpoints_test extends \advanced_testcase {
     public function test_unknown_contextid_is_rejected(): void {
         $this->resetAfterTest();
         $course = $this->getDataGenerator()->create_course();
-        $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
+        $teacher = $this->getDataGenerator()->create_and_enrol($course, self::ROLE_TEACHER);
         $sessionid = $this->seed_session((int)$teacher->id);
 
         $this->setUser($teacher);
@@ -168,7 +173,7 @@ final class upload_endpoints_test extends \advanced_testcase {
         $course1 = $this->getDataGenerator()->create_course();
         $course2 = $this->getDataGenerator()->create_course();
         $context2 = \context_course::instance($course2->id);
-        $teacher = $this->getDataGenerator()->create_and_enrol($course1, 'editingteacher');
+        $teacher = $this->getDataGenerator()->create_and_enrol($course1, self::ROLE_TEACHER);
         $sessionid = $this->seed_session((int)$teacher->id);
 
         $this->setUser($teacher);

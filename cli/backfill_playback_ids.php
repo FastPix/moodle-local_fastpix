@@ -29,8 +29,8 @@
  */
 
 define('CLI_SCRIPT', true);
-require_once(__DIR__ . '/../../../config.php');
-require_once($CFG->libdir . '/clilib.php');
+require_once __DIR__ . '/../../../config.php';
+require_once $CFG->libdir . '/clilib.php';
 
 [$opts] = cli_get_params([
     'apply'                 => false,

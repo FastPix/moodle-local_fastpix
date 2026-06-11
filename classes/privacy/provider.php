@@ -41,6 +41,18 @@ class provider implements
     \core_privacy\local\metadata\provider,
     \core_privacy\local\request\core_userlist_provider,
     \core_privacy\local\request\plugin\provider {
+    /** @var string Asset table name. */
+    private const TABLE_ASSET = 'local_fastpix_asset';
+
+    /** @var string Upload-session table name. */
+    private const TABLE_UPLOAD_SESSION = 'local_fastpix_upload_session';
+
+    /** @var string GDPR pending-deletion timestamp column. */
+    private const COL_GDPR_PENDING = 'gdpr_delete_pending_at';
+
+    /** @var string Soft-delete timestamp column. */
+    private const COL_DELETED_AT = 'deleted_at';
+
     /**
      * Get metadata.
      *
@@ -49,7 +61,7 @@ class provider implements
      */
     public static function get_metadata(collection $collection): collection {
         $collection->add_database_table(
-            'local_fastpix_asset',
+            self::TABLE_ASSET,
             [
                 'owner_userid' => 'privacy:metadata:asset:owner_userid',
                 'fastpix_id'   => 'privacy:metadata:asset:fastpix_id',
@@ -61,9 +73,10 @@ class provider implements
         );
 
         $collection->add_database_table(
-            'local_fastpix_upload_session',
+            self::TABLE_UPLOAD_SESSION,
             [
                 'userid'      => 'privacy:metadata:upload_session:userid',
+                'courseid'    => 'privacy:metadata:upload_session:courseid',
                 'upload_id'   => 'privacy:metadata:upload_session:upload_id',
                 'source_url'  => 'privacy:metadata:upload_session:source_url',
                 'state'       => 'privacy:metadata:upload_session:state',
@@ -71,6 +84,20 @@ class provider implements
                 'timecreated' => 'privacy:metadata:upload_session:timecreated',
             ],
             'privacy:metadata:upload_session',
+        );
+
+        // The webhook ledger stores FastPix-side event payloads (about assets,
+        // not Moodle users) for idempotency/ordering, pruned after 90 days
+        // (rule W9). Declared so admins see what the plugin retains.
+        $collection->add_database_table(
+            'local_fastpix_webhook_event',
+            [
+                'provider_event_id' => 'privacy:metadata:webhook_event:provider_event_id',
+                'event_type'        => 'privacy:metadata:webhook_event:event_type',
+                'payload'           => 'privacy:metadata:webhook_event:payload',
+                'received_at'       => 'privacy:metadata:webhook_event:received_at',
+            ],
+            'privacy:metadata:webhook_event',
         );
 
         $collection->add_external_location_link(
@@ -109,8 +136,8 @@ class provider implements
         }
 
         global $DB;
-        $assets   = $DB->get_fieldset_select('local_fastpix_asset', 'owner_userid', 'owner_userid > 0');
-        $sessions = $DB->get_fieldset_select('local_fastpix_upload_session', 'userid', 'userid > 0');
+        $assets   = $DB->get_fieldset_select(self::TABLE_ASSET, 'owner_userid', 'owner_userid > 0');
+        $sessions = $DB->get_fieldset_select(self::TABLE_UPLOAD_SESSION, 'userid', 'userid > 0');
         $userlist->add_users(array_values(array_unique(array_merge($assets, $sessions))));
     }
 
@@ -128,7 +155,7 @@ class provider implements
         $userid  = $contextlist->get_user()->id;
         $context = \context_system::instance();
 
-        $assets = $DB->get_records('local_fastpix_asset', ['owner_userid' => $userid]);
+        $assets = $DB->get_records(self::TABLE_ASSET, ['owner_userid' => $userid]);
         if (!empty($assets)) {
             writer::with_context($context)->export_data(
                 [get_string('pluginname', 'local_fastpix'), 'assets'],
@@ -136,7 +163,7 @@ class provider implements
             );
         }
 
-        $sessions = $DB->get_records('local_fastpix_upload_session', ['userid' => $userid]);
+        $sessions = $DB->get_records(self::TABLE_UPLOAD_SESSION, ['userid' => $userid]);
         if (!empty($sessions)) {
             writer::with_context($context)->export_data(
                 [get_string('pluginname', 'local_fastpix'), 'upload_sessions'],
@@ -166,20 +193,20 @@ class provider implements
         // - local_fastpix_asset GDPR-pending → hard-delete: 90 days.
         // (Asset_cleanup, GDPR retry path).
         $DB->set_field_select(
-            'local_fastpix_asset',
-            'gdpr_delete_pending_at',
+            self::TABLE_ASSET,
+            self::COL_GDPR_PENDING,
             $now,
             'gdpr_delete_pending_at IS NULL AND deleted_at IS NULL',
         );
         $DB->set_field_select(
-            'local_fastpix_asset',
-            'deleted_at',
+            self::TABLE_ASSET,
+            self::COL_DELETED_AT,
             $now,
             'deleted_at IS NULL',
         );
 
         // Upload sessions are transient; remove immediately.
-        $DB->delete_records('local_fastpix_upload_session', []);
+        $DB->delete_records(self::TABLE_UPLOAD_SESSION, []);
     }
 
     /**
@@ -197,20 +224,20 @@ class provider implements
         $now    = time();
 
         $DB->set_field_select(
-            'local_fastpix_asset',
-            'gdpr_delete_pending_at',
+            self::TABLE_ASSET,
+            self::COL_GDPR_PENDING,
             $now,
             'owner_userid = :uid AND gdpr_delete_pending_at IS NULL',
             ['uid' => $userid],
         );
         $DB->set_field_select(
-            'local_fastpix_asset',
-            'deleted_at',
+            self::TABLE_ASSET,
+            self::COL_DELETED_AT,
             $now,
             'owner_userid = :uid AND deleted_at IS NULL',
             ['uid' => $userid],
         );
-        $DB->delete_records('local_fastpix_upload_session', ['userid' => $userid]);
+        $DB->delete_records(self::TABLE_UPLOAD_SESSION, ['userid' => $userid]);
     }
 
     /**
@@ -234,19 +261,19 @@ class provider implements
         [$insql, $params] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED);
 
         $DB->set_field_select(
-            'local_fastpix_asset',
-            'gdpr_delete_pending_at',
+            self::TABLE_ASSET,
+            self::COL_GDPR_PENDING,
             $now,
             "owner_userid {$insql} AND gdpr_delete_pending_at IS NULL",
             $params,
         );
         $DB->set_field_select(
-            'local_fastpix_asset',
-            'deleted_at',
+            self::TABLE_ASSET,
+            self::COL_DELETED_AT,
             $now,
             "owner_userid {$insql} AND deleted_at IS NULL",
             $params,
         );
-        $DB->delete_records_select('local_fastpix_upload_session', "userid {$insql}", $params);
+        $DB->delete_records_select(self::TABLE_UPLOAD_SESSION, "userid {$insql}", $params);
     }
 }

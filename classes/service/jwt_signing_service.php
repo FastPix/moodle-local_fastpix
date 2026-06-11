@@ -36,10 +36,8 @@ use local_fastpix\exception\signing_key_missing;
 class jwt_signing_service {
     /** @var int Token ttl seconds. */
     private const TOKEN_TTL_SECONDS = 300;
-    /** @var string JWT issuer for manifest playback tokens. Matches FastPix's own generator. */
+    /** @var string JWT issuer. Matches FastPix's own generator (manifest + DRM tokens). */
     private const ISS = 'fastpix.com';
-    /** @var string JWT issuer for DRM license tokens. Same as the manifest issuer. */
-    private const ISS_DRM = 'fastpix.com';
 
     /**
      * Sign for playback.
@@ -49,32 +47,10 @@ class jwt_signing_service {
      * @return string
      */
     public function sign_for_playback(string $playbackid, ?int $ttl = null): string {
-        $kid = (string)get_config('local_fastpix', 'signing_key_id');
-        $privatekeyb64 = (string)get_config('local_fastpix', 'signing_private_key');
-
-        if ($kid === '' || $privatekeyb64 === '') {
-            throw new signing_key_missing('config_empty');
-        }
-
-        $pem = base64_decode($privatekeyb64, true);
-        if ($pem === false) {
-            throw new signing_key_missing('invalid_base64');
-        }
-
-        $now = time();
         // FastPix playback JWT format, verified against the secured-playback
         // docs: kid in both payload and header, aud is "media:<playback_id>",
         // sub is empty (reserved), and iss is fastpix.com (the ISS constant).
-        $payload = [
-            'kid' => $kid,
-            'aud' => 'media:' . $playbackid,
-            'iss' => self::ISS,
-            'sub' => '',
-            'iat' => $now,
-            'exp' => $now + ($ttl ?? self::TOKEN_TTL_SECONDS),
-        ];
-
-        return JWT::encode($payload, $pem, 'RS256', $kid);
+        return $this->sign($playbackid, 'media:', $ttl);
     }
 
     /**
@@ -91,6 +67,21 @@ class jwt_signing_service {
      * @return string
      */
     public function sign_for_drm(string $playbackid, ?int $ttl = null): string {
+        return $this->sign($playbackid, 'drm:', $ttl);
+    }
+
+    /**
+     * Sign an RS256 playback/DRM JWT. The only difference between the two
+     * token kinds is the aud prefix ('media:' vs 'drm:'); issuer, signing
+     * key, and key id are identical.
+     *
+     * @param string $playbackid The asset's FastPix playback id.
+     * @param string $audprefix  The aud claim prefix ('media:' or 'drm:').
+     * @param ?int $ttl
+     * @return string
+     * @throws signing_key_missing when the signing key config is absent/invalid.
+     */
+    private function sign(string $playbackid, string $audprefix, ?int $ttl): string {
         $kid = (string)get_config('local_fastpix', 'signing_key_id');
         $privatekeyb64 = (string)get_config('local_fastpix', 'signing_private_key');
 
@@ -106,8 +97,8 @@ class jwt_signing_service {
         $now = time();
         $payload = [
             'kid' => $kid,
-            'aud' => 'drm:' . $playbackid,
-            'iss' => self::ISS_DRM,
+            'aud' => $audprefix . $playbackid,
+            'iss' => self::ISS,
             'sub' => '',
             'iat' => $now,
             'exp' => $now + ($ttl ?? self::TOKEN_TTL_SECONDS),

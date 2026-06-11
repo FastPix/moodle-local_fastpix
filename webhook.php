@@ -60,7 +60,12 @@ if ($rawbody === false) {
 // Into the ledger. Real events always carry top-level id + type.
 $trimmedbody = trim($rawbody);
 $isping = ($trimmedbody === '' || $trimmedbody === '{}');
-$pingshape = $trimmedbody === '' ? 'empty' : ($trimmedbody === '{}' ? 'curly_braces' : 'unknown');
+$pingshape = 'unknown';
+if ($trimmedbody === '') {
+    $pingshape = 'empty';
+} else if ($trimmedbody === '{}') {
+    $pingshape = 'curly_braces';
+}
 if (!$isping) {
     $maybe = json_decode($trimmedbody);
     if (

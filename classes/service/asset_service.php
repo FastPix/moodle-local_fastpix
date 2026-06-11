@@ -161,39 +161,7 @@ class asset_service {
         global $DB;
 
         $data = $remote->data ?? $remote;
-
-        $playbackid = null;
-        $accesspolicy = (string)($data->accessPolicy ?? 'private');
-        if (!empty($data->playbackIds) && is_array($data->playbackIds)) {
-            foreach ($data->playbackIds as $pb) {
-                $policy = (string)($pb->accessPolicy ?? '');
-                if (in_array($policy, ['private', 'drm'], true)) {
-                    $playbackid = (string)$pb->id;
-                    $accesspolicy = $policy;
-                    break;
-                }
-            }
-        }
-
-        $now = time();
-        $row = (object)[
-        'fastpix_id'       => (string)$data->id,
-        'playback_id'      => $playbackid,
-        'owner_userid'     => 0,
-        'title'            => (string)($data->title ?? "Imported {$data->id}"),
-        'duration'         => $data->duration ?? null,
-        'status'           => (string)($data->status ?? 'ready'),
-        'access_policy'    => $accesspolicy,
-        'drm_required'     => $accesspolicy === 'drm' ? 1 : 0,
-        'no_skip_required' => 0,
-        'has_captions'     => self::has_caption_track($data) ? 1 : 0,
-        'last_event_id'    => null,
-        'last_event_at'    => null,
-        'deleted_at'       => null,
-        'gdpr_delete_pending_at' => null,
-        'timecreated'      => $now,
-        'timemodified'     => $now,
-        ];
+        $row = self::build_row_from_remote($data);
 
         try {
             $row->id = $DB->insert_record(self::TABLE, $row);
@@ -213,6 +181,59 @@ class asset_service {
         }
 
         return $row;
+    }
+
+    /**
+     * Select the first private/DRM playback id and its access policy from a
+     * remote media payload. Defaults to ['private'] policy with no playback id.
+     *
+     * @param \stdClass $data The remote media `data` object.
+     * @return array{0: ?string, 1: string} [playback_id, access_policy].
+     */
+    private static function select_playback_and_policy(\stdClass $data): array {
+        $playbackid = null;
+        $accesspolicy = (string)($data->accessPolicy ?? 'private');
+        if (!empty($data->playbackIds) && is_array($data->playbackIds)) {
+            foreach ($data->playbackIds as $pb) {
+                $policy = (string)($pb->accessPolicy ?? '');
+                if (in_array($policy, ['private', 'drm'], true)) {
+                    $playbackid = (string)$pb->id;
+                    $accesspolicy = $policy;
+                    break;
+                }
+            }
+        }
+        return [$playbackid, $accesspolicy];
+    }
+
+    /**
+     * Build an asset row from a remote media payload for cold-start insert.
+     * owner_userid is 0 (the read path has no user context; backfilled later).
+     *
+     * @param \stdClass $data The remote media `data` object.
+     * @return \stdClass
+     */
+    private static function build_row_from_remote(\stdClass $data): \stdClass {
+        [$playbackid, $accesspolicy] = self::select_playback_and_policy($data);
+        $now = time();
+        return (object)[
+            'fastpix_id'             => (string)$data->id,
+            'playback_id'            => $playbackid,
+            'owner_userid'           => 0,
+            'title'                  => (string)($data->title ?? "Imported {$data->id}"),
+            'duration'               => $data->duration ?? null,
+            'status'                 => (string)($data->status ?? 'ready'),
+            'access_policy'          => $accesspolicy,
+            'drm_required'           => $accesspolicy === 'drm' ? 1 : 0,
+            'no_skip_required'       => 0,
+            'has_captions'           => self::has_caption_track($data) ? 1 : 0,
+            'last_event_id'          => null,
+            'last_event_at'          => null,
+            'deleted_at'             => null,
+            'gdpr_delete_pending_at' => null,
+            'timecreated'            => $now,
+            'timemodified'           => $now,
+        ];
     }
 
     /**
@@ -377,8 +398,8 @@ class asset_service {
                 ]);
             } catch (\dml_write_exception $e) {
                 // UNIQUE race — another request inserted the same reference
-                // first. The idempotent contract still holds.
-                $unused = $e;
+                // first. The idempotent contract still holds, so swallow it.
+                unset($e);
             }
         }
 

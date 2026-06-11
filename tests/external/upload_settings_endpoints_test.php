@@ -35,6 +35,9 @@ namespace local_fastpix\external;
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 final class upload_settings_endpoints_test extends \advanced_testcase {
+    /** @var string Capability mod_fastpix owns (ADR-012) and this suite grants for the run. */
+    private const CAP_UPLOAD = 'mod/fastpix:uploadmedia';
+
     public function setUp(): void {
         parent::setUp();
         $this->resetAfterTest();
@@ -60,11 +63,11 @@ final class upload_settings_endpoints_test extends \advanced_testcase {
      */
     private function define_upload_capability(): void {
         global $DB;
-        if ($DB->record_exists('capabilities', ['name' => 'mod/fastpix:uploadmedia'])) {
+        if ($DB->record_exists('capabilities', ['name' => self::CAP_UPLOAD])) {
             return;
         }
         $DB->insert_record('capabilities', (object)[
-            'name'         => 'mod/fastpix:uploadmedia',
+            'name'         => self::CAP_UPLOAD,
             'captype'      => 'write',
             'contextlevel' => CONTEXT_COURSE,
             'component'    => 'mod_fastpix',
@@ -73,7 +76,7 @@ final class upload_settings_endpoints_test extends \advanced_testcase {
         $teacherrole = $DB->get_record('role', ['archetype' => 'editingteacher'], '*', IGNORE_MULTIPLE);
         if ($teacherrole) {
             assign_capability(
-                'mod/fastpix:uploadmedia',
+                self::CAP_UPLOAD,
                 CAP_ALLOW,
                 $teacherrole->id,
                 \context_system::instance()->id,
@@ -84,14 +87,12 @@ final class upload_settings_endpoints_test extends \advanced_testcase {
     }
 
     /**
-     * Inject a gateway mock as the singleton.
+     * Inject a gateway mock as the singleton via the PHPUnit-guarded seam.
      *
      * @param mixed $mock
      */
     private function inject_gateway_mock($mock): void {
-        $prop = (new \ReflectionClass(\local_fastpix\api\gateway::class))->getProperty('instance');
-        $prop->setAccessible(true);
-        $prop->setValue(null, $mock);
+        \local_fastpix\api\gateway::set_instance_for_testing($mock);
     }
 
     /**

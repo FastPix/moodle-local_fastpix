@@ -55,7 +55,10 @@ namespace local_fastpix\admin;
  * @copyright  2026 FastPix Inc. <support@fastpix.io>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class setting_webhook_secret extends \admin_setting_configtext {
+// Class name is snake_case by Moodle Frankenstyle (rule M2) — the autoloader maps
+// \local_fastpix\admin\setting_webhook_secret to this file. SonarQube php:S101
+// (PascalCase) is a documented false positive; see docs/review/SONARQUBE-2026-06-11.md §4.
+class setting_webhook_secret extends \admin_setting_configtext { // NOSONAR
     /**
      * Minimum acceptable length, mirroring verifier::MIN_SECRET_BYTES.
      */    private const MIN_LEN = 32;
@@ -80,13 +83,14 @@ class setting_webhook_secret extends \admin_setting_configtext {
         }
 
         if ($newvalue !== $oldvalue && $oldvalue !== '') {
+            $now = time();
             set_config('webhook_secret_previous', $oldvalue, 'local_fastpix');
-            set_config('webhook_secret_rotated_at', time(), 'local_fastpix');
+            set_config('webhook_secret_rotated_at', $now, 'local_fastpix');
 
             try {
                 \local_fastpix\event\webhook_secret_rotated::create([
                     'context' => \context_system::instance(),
-                    'other'   => ['rotated_at' => time()],
+                    'other'   => ['rotated_at' => $now],
                 ])->trigger();
             } catch (\Throwable $e) {
                 debugging('local_fastpix: webhook_secret_rotated event failed: '

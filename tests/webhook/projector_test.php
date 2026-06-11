@@ -108,10 +108,10 @@ final class projector_test extends \advanced_testcase {
      * @return string
      */
     private function reflect_cache_key_fastpix(string $fastpixid): string {
-        $r = new \ReflectionClass(projector::class);
-        $m = $r->getMethod('cache_key_fastpix');
-        $m->setAccessible(true);
-        return $m->invoke(new projector(), $fastpixid);
+        // The projector invalidates via \local_fastpix\util\cache_keys, the
+        // single source of truth shared with asset_service. Assert against it
+        // directly rather than a projector-private seam.
+        return \local_fastpix\util\cache_keys::fastpix($fastpixid);
     }
 
     /**
@@ -121,10 +121,7 @@ final class projector_test extends \advanced_testcase {
      * @return string
      */
     private function reflect_cache_key_playback(string $playbackid): string {
-        $r = new \ReflectionClass(projector::class);
-        $m = $r->getMethod('cache_key_playback');
-        $m->setAccessible(true);
-        return $m->invoke(new projector(), $playbackid);
+        return \local_fastpix\util\cache_keys::playback($playbackid);
     }
 
     // A. Basic dispatch.

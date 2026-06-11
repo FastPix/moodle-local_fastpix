@@ -73,16 +73,18 @@ if (!has_capability('local/fastpix:configurecredentials', context_system::instan
 //
 // Parameters: $buttonid, $statusid, $labelkey, $descriptionkey,.
 // $methodname, $successtpl, $successfield. Returns the rendered HTML.
-$localfastpixbuttonhtml = static function (
-    string $buttonid,
-    string $statusid,
-    string $labelkey,
-    string $descriptionkey,
-    string $methodname,
-    string $successtpl,
-    string $successfield,
-    string $iconsvg = '',
-): string {
+$localfastpixbuttonhtml = static function (array $btn): string {
+    // $btn keys: buttonid, statusid, labelkey, descriptionkey, methodname,
+    // successtpl, successfield, and optional iconsvg.
+    $buttonid       = $btn['buttonid'];
+    $statusid       = $btn['statusid'];
+    $labelkey       = $btn['labelkey'];
+    $descriptionkey = $btn['descriptionkey'];
+    $methodname     = $btn['methodname'];
+    $successtpl     = $btn['successtpl'];
+    $successfield   = $btn['successfield'];
+    $iconsvg        = $btn['iconsvg'] ?? '';
+
     // Outlined .fp-ibtn (icon + label), matching the card's Copy buttons.
     $button = \html_writer::tag(
         'button',
@@ -227,16 +229,16 @@ $btntestconnectionstatusid = 'local_fastpix_test_connection_status';
 $settings->add(new admin_setting_description(
     'local_fastpix/test_connection_button',
     new lang_string('button_test_connection', 'local_fastpix'),
-    $localfastpixbuttonhtml(
-        $btntestconnectionid,
-        $btntestconnectionstatusid,
-        'button_test_connection',
-        'button_test_connection_desc',
-        'local_fastpix_test_connection',
-        'Authenticated · {$a} ms',
-        'latency_ms',
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
-    ),
+    $localfastpixbuttonhtml([
+        'buttonid'       => $btntestconnectionid,
+        'statusid'       => $btntestconnectionstatusid,
+        'labelkey'       => 'button_test_connection',
+        'descriptionkey' => 'button_test_connection_desc',
+        'methodname'     => 'local_fastpix_test_connection',
+        'successtpl'     => 'Authenticated · {$a} ms',
+        'successfield'   => 'latency_ms',
+        'iconsvg'        => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
+    ]),
 ));
 
 // 2. Upload defaults.
@@ -284,6 +286,27 @@ $settings->add(new admin_setting_configselect(
     ],
 ));
 
+$settings->add(new admin_setting_configcheckbox(
+    'local_fastpix/enablehealthendpoint',
+    new lang_string('setting_enablehealthendpoint', 'local_fastpix'),
+    new lang_string('setting_enablehealthendpoint_desc', 'local_fastpix'),
+    1,
+));
+
+// 3. Retention & cleanup.
+//
+// Lifecycle windows driving the orphan sweeper and the unattached-asset
+// releaser tasks. The three duration values are read by the scheduled tasks;
+// auto_release_enabled is the master switch that turns notify-only into
+// actually-delete. The warning lead must stay shorter than the grace period
+// (the description says so; the releaser task is the runtime guard).
+
+$settings->add(new admin_setting_heading(
+    'local_fastpix/heading_retention',
+    new lang_string('settings_retention', 'local_fastpix'),
+    new lang_string('settings_retention_desc', 'local_fastpix'),
+));
+
 $settings->add(new admin_setting_configduration(
     'local_fastpix/orphaned_session_ttl',
     new lang_string('setting_orphaned_session_ttl', 'local_fastpix'),
@@ -312,7 +335,7 @@ $settings->add(new admin_setting_configcheckbox(
     0,
 ));
 
-// 3. Feature flags.
+// 4. Feature flags.
 //
 // Subtitle + docs link, matching the credentials / upload-defaults sections.
 // The link points at the DRM-encryption setup docs (where the DRM
@@ -353,7 +376,7 @@ $settings->add(new admin_setting_configtext(
 // The runtime double-gate (rule W12) is what actually enforces correctness;
 // this is UI clarity only. With JS off the field simply stays visible.
 
-// 4. Webhooks.
+// 5. Webhooks.
 //
 // No docs link in the heading — the inline help below the Webhook URL field
 // already links to the FastPix Dashboard → Webhooks docs.
@@ -500,16 +523,16 @@ $btnsendeventstatusid = 'local_fastpix_send_test_event_status';
 $settings->add(new admin_setting_description(
     'local_fastpix/send_test_event_button',
     new lang_string('button_send_test_event', 'local_fastpix'),
-    $localfastpixbuttonhtml(
-        $btnsendeventid,
-        $btnsendeventstatusid,
-        'button_send_test_event',
-        'button_send_test_event_desc',
-        'local_fastpix_send_test_event',
-        'Test event delivered (ledger id {$a})',
-        'ledger_id',
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>',
-    ),
+    $localfastpixbuttonhtml([
+        'buttonid'       => $btnsendeventid,
+        'statusid'       => $btnsendeventstatusid,
+        'labelkey'       => 'button_send_test_event',
+        'descriptionkey' => 'button_send_test_event_desc',
+        'methodname'     => 'local_fastpix_send_test_event',
+        'successtpl'     => 'Test event delivered (ledger id {$a})',
+        'successfield'   => 'ledger_id',
+        'iconsvg'        => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>',
+    ]),
 ));
 
 // Card restyle (progressive enhancement).
@@ -524,6 +547,7 @@ $settings->add(new admin_setting_description(
 $fpcardicons = [
     'key'    => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M10.85 12.15L19 4M18 5l3 3M15 8l3 3"/></svg>',
     'upload' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 16l-4-4-4 4M12 12v9M20.4 14.5A5 5 0 0017 6h-1.3A8 8 0 104 15.3"/></svg>',
+    'trash'  => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>',
     'flag'   => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22V3M4 4h14l-3 5 3 5H4"/></svg>',
     'hook'   => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 007.07 0l3-3a5 5 0 00-7.07-7.07l-1 1"/><path d="M14 11a5 5 0 00-7.07 0l-3 3a5 5 0 007.07 7.07l1-1"/></svg>',
 ];
@@ -556,6 +580,7 @@ $fpcardcfg = json_encode([
     'sections' => [
         ['title' => get_string('settings_credentials', 'local_fastpix'), 'icon' => $fpcardicons['key']],
         ['title' => get_string('setting_section_upload_defaults', 'local_fastpix'), 'icon' => $fpcardicons['upload']],
+        ['title' => get_string('settings_retention', 'local_fastpix'), 'icon' => $fpcardicons['trash']],
         ['title' => get_string('settings_features', 'local_fastpix'), 'icon' => $fpcardicons['flag']],
         ['title' => get_string('settings_webhooks', 'local_fastpix'), 'icon' => $fpcardicons['hook']],
     ],
@@ -621,6 +646,16 @@ $fpcardstyle = <<<'CSS'
 #page-admin-setting-local_fastpix .fp-card-body .form-item input[type=text]:focus{outline:0;border-color:#ec1e5b;box-shadow:0 0 0 3px rgba(236,30,91,.12);}
 #page-admin-setting-local_fastpix .fp-card-body .form-item select{height:44px;width:100%;max-width:640px;padding:0 38px 0 14px;border:1px solid #dee2e6;border-radius:8px;background:#fff url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%23767b85' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>") no-repeat right 14px center;appearance:none;-webkit-appearance:none;font-size:14px;color:#1d2125;cursor:pointer;}
 #page-admin-setting-local_fastpix .fp-card-body .form-item select:focus{outline:0;border-color:#ec1e5b;box-shadow:0 0 0 3px rgba(236,30,91,.12);}
+/* Duration controls (Retention & cleanup): one compact unit = a small number
+   field + a content-sized unit dropdown, with a clear gap between them. The
+   generic rules above stretch the number to flex:1 and cap the select at 640px
+   (meant for full-width selects); a duration wants neither. Scope everything to
+   .form-duration so the access-policy / resolution selects stay full width. */
+#page-admin-setting-local_fastpix .fp-card-body .form-item .form-duration{display:inline-flex;}
+#page-admin-setting-local_fastpix .fp-card-body .form-item .form-duration .d-flex{gap:12px;align-items:center;}
+#page-admin-setting-local_fastpix .fp-card-body .form-item .form-duration input[type=text]{flex:0 0 auto;width:104px;text-align:center;}
+#page-admin-setting-local_fastpix .fp-card-body .form-item .form-duration select{flex:0 0 auto;width:auto;min-width:148px;max-width:none;}
+#page-admin-setting-local_fastpix .fp-card-body .form-item .form-duration .fp-select-wrap{flex:0 0 auto;width:auto;min-width:148px;max-width:none;}
 /* Button rows (Test connection / Send test event): line 1 is the button plus,
    on click, a green/red result chip; the static hint sits below as a blue info
    chip (always shown). */
