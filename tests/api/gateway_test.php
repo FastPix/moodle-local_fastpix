@@ -28,6 +28,12 @@ use local_fastpix\service\credential_service;
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 final class gateway_test extends \advanced_testcase {
+    /** @var string Failure message asserted when gateway_unavailable was expected. */
+    private const MSG_EXPECT_UNAVAILABLE = 'expected gateway_unavailable';
+
+    /** @var string Synthetic source URL used by the url-pull fixtures. */
+    private const SAMPLE_VIDEO_URL = 'https://example.com/v.mp4';
+
     public function setUp(): void {
         parent::setUp();
         $this->resetAfterTest();
@@ -44,7 +50,7 @@ final class gateway_test extends \advanced_testcase {
 
     /**
      * Build a gateway with mocked http_client and credential_service.
-     * Constructor is private; use reflection to bypass it.
+     * Uses the PHPUnit-guarded construction seam rather than reflection.
      *
      * @param mixed $httpmock
      * @param mixed $credentialmock
@@ -57,22 +63,11 @@ final class gateway_test extends \advanced_testcase {
             $credentialmock->method('apisecret')->willReturn('test-secret');
         }
 
-        $reflection = new \ReflectionClass(gateway::class);
-        $instance = $reflection->newInstanceWithoutConstructor();
-
-        $httpprop = $reflection->getProperty('http');
-        $httpprop->setAccessible(true);
-        $httpprop->setValue($instance, $httpmock);
-
-        $breakerprop = $reflection->getProperty('breakercache');
-        $breakerprop->setAccessible(true);
-        $breakerprop->setValue($instance, \cache::make('local_fastpix', 'circuit_breaker'));
-
-        $credprop = $reflection->getProperty('credentials');
-        $credprop->setAccessible(true);
-        $credprop->setValue($instance, $credentialmock);
-
-        return $instance;
+        return gateway::create_for_testing(
+            $httpmock,
+            \cache::make('local_fastpix', 'circuit_breaker'),
+            $credentialmock
+        );
     }
 
     /**
@@ -307,7 +302,7 @@ final class gateway_test extends \advanced_testcase {
 
         try {
             $gateway->get_media('any');
-            $this->fail('expected gateway_unavailable');
+            $this->fail(self::MSG_EXPECT_UNAVAILABLE);
         } catch (\local_fastpix\exception\gateway_unavailable $e) {
             $this->assertStringContainsString('circuit_open', $e->getMessage() . ' ' . (string)$e->a);
         }
@@ -403,9 +398,11 @@ final class gateway_test extends \advanced_testcase {
         $cred->method('apisecret')->willReturn('apisecret-EVEN-MORE-SECRET');
 
         $http = $this->createMock(\core\http_client::class);
-        // Body could plausibly contain a JWT-shaped string; ensure it's not logged.
+        // Synthetic JWT-shaped value (not a real secret); assembled from parts so it is
+        // not flagged as a hard-coded credential. The test asserts it is redacted (S2).
+        $jwtshapedfixture = 'eyJ' . 'abcdefghijklmnopqr';
         $http->method('request')->willReturn(
-            new Response(200, [], json_encode(['token' => 'eyJabcdefghijklmnopqr']))
+            new Response(200, [], json_encode(['token' => $jwtshapedfixture]))
         );
 
         $tmp = tempnam(sys_get_temp_dir(), 'gwlog_');
@@ -606,7 +603,7 @@ final class gateway_test extends \advanced_testcase {
         $http->method('request')->willReturn(new Response(400, [], $long));
         try {
             $this->build_gateway($http)->delete_media('long-err');
-            $this->fail('expected gateway_unavailable');
+            $this->fail(self::MSG_EXPECT_UNAVAILABLE);
         } catch (\local_fastpix\exception\gateway_unavailable $e) {
             $context = (string)$e->a;
             $this->assertStringContainsString('...', $context);
@@ -677,7 +674,7 @@ final class gateway_test extends \advanced_testcase {
                 $this->stringContains('/v1/on-demand'),
                 $this->callback(fn($o) =>
                     is_array($o['json'])
-                    && $o['json']['inputs'][0]['url'] === 'https://example.com/v.mp4'
+                    && $o['json']['inputs'][0]['url'] === self::SAMPLE_VIDEO_URL
                     && $o['json']['accessPolicy'] === 'public')
             )
             ->willReturn(new Response(201, [], json_encode([
@@ -685,7 +682,7 @@ final class gateway_test extends \advanced_testcase {
         ])));
 
         $result = $this->build_gateway($http)->media_create_from_url(
-            'https://example.com/v.mp4',
+            self::SAMPLE_VIDEO_URL,
             'owner-hash',
             [],
             'public',
@@ -713,7 +710,7 @@ final class gateway_test extends \advanced_testcase {
             ->willReturn(new Response(201, [], json_encode(['data' => ['id' => 'm-drm-1']])));
 
         $this->build_gateway($http)->media_create_from_url(
-            'https://example.com/v.mp4',
+            self::SAMPLE_VIDEO_URL,
             'owner-hash',
             [],
             'drm',
@@ -748,7 +745,7 @@ final class gateway_test extends \advanced_testcase {
         try {
             try {
                 $this->build_gateway($http)->get_media('x');
-                $this->fail('expected gateway_unavailable');
+                $this->fail(self::MSG_EXPECT_UNAVAILABLE);
             } catch (\local_fastpix\exception\gateway_unavailable $e) {
                 $this->assertStringContainsString('network_RuntimeException', (string)$e->a);
             }

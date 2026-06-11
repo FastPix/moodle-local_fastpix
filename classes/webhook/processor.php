@@ -68,43 +68,51 @@ class processor {
      * @return array
      */
     public static function process(string $rawbody, string $signatureheader): array {
-        global $DB;
-
         // 1. Signature verification (rule S3 — hash_equals via verifier).
         if (!verifier::instance()->verify($rawbody, $signatureheader)) {
-            return [
-                'result'    => self::RESULT_BAD_SIGNATURE,
-                'ledger_id' => null,
-                'event_id'  => null,
-                'error'     => 'signature verification failed',
-            ];
+            return self::result(self::RESULT_BAD_SIGNATURE, null, null, 'signature verification failed');
         }
 
-        // 2. Parse JSON.
-        $event = json_decode($rawbody);
-        if (!($event instanceof \stdClass)) {
-            return [
-                'result'    => self::RESULT_MALFORMED_BODY,
-                'ledger_id' => null,
-                'event_id'  => null,
-                'error'     => 'JSON decode failed',
-            ];
+        // 2. Parse + validate JSON. A decode failure and a missing id/type are
+        // both RESULT_MALFORMED_BODY; keep their distinct reasons and event_id.
+        $event     = json_decode($rawbody);
+        $valid     = $event instanceof \stdClass;
+        $eventid   = ($valid && isset($event->id)) ? (string)$event->id : '';
+        $eventtype = ($valid && isset($event->type)) ? (string)$event->type : '';
+        if (!$valid || $eventid === '' || $eventtype === '') {
+            return self::result(
+                self::RESULT_MALFORMED_BODY,
+                null,
+                $eventid !== '' ? $eventid : null,
+                $valid ? 'missing required field id/type' : 'JSON decode failed'
+            );
         }
 
-        $eventid   = isset($event->id) ? (string)$event->id : '';
-        $eventtype = isset($event->type) ? (string)$event->type : '';
-        if ($eventid === '' || $eventtype === '') {
-            return [
-                'result'    => self::RESULT_MALFORMED_BODY,
-                'ledger_id' => null,
-                'event_id'  => $eventid !== '' ? $eventid : null,
-                'error'     => 'missing required field id/type',
-            ];
-        }
-
-        // 3. Idempotent ledger insert. UNIQUE on provider_event_id catches.
-        // Duplicates as dml_write_exception — duplicate is success (W1).
+        // 3-4. Idempotent ledger insert + enqueue projection.
         $eventcreatedat = isset($event->occurredAt) ? (int)$event->occurredAt : time();
+        return self::insert_and_enqueue($eventid, $eventtype, $eventcreatedat, $rawbody, $signatureheader);
+    }
+
+    /**
+     * Idempotent ledger insert and adhoc-projection enqueue. UNIQUE on
+     * provider_event_id catches duplicates as dml_write_exception — a
+     * duplicate is success (W1).
+     *
+     * @param string $eventid
+     * @param string $eventtype
+     * @param int $eventcreatedat
+     * @param string $rawbody
+     * @param string $signatureheader
+     * @return array
+     */
+    private static function insert_and_enqueue(
+        string $eventid,
+        string $eventtype,
+        int $eventcreatedat,
+        string $rawbody,
+        string $signatureheader
+    ): array {
+        global $DB;
 
         try {
             $transaction = $DB->start_delegated_transaction();
@@ -128,34 +136,42 @@ class processor {
                     ['provider_event_id' => $eventid],
                     'id'
                 );
-                return [
-                    'result'    => self::RESULT_DUPLICATE,
-                    'ledger_id' => $existing ? (int)$existing->id : null,
-                    'event_id'  => $eventid,
-                    'error'     => null,
-                ];
+                return self::result(
+                    self::RESULT_DUPLICATE,
+                    $existing ? (int)$existing->id : null,
+                    $eventid,
+                    null
+                );
             }
 
-            // 4. Enqueue adhoc task for asynchronous projection.
+            // Enqueue adhoc task for asynchronous projection.
             $task = new \local_fastpix\task\process_webhook();
             $task->set_custom_data((object)['provider_event_id' => $eventid]);
             \core\task\manager::queue_adhoc_task($task);
 
             $transaction->allow_commit();
 
-            return [
-                'result'    => self::RESULT_ACCEPTED,
-                'ledger_id' => (int)$ledgerid,
-                'event_id'  => $eventid,
-                'error'     => null,
-            ];
+            return self::result(self::RESULT_ACCEPTED, (int)$ledgerid, $eventid, null);
         } catch (\Throwable $e) {
-            return [
-                'result'    => self::RESULT_DB_ERROR,
-                'ledger_id' => null,
-                'event_id'  => $eventid,
-                'error'     => $e->getMessage(),
-            ];
+            return self::result(self::RESULT_DB_ERROR, null, $eventid, $e->getMessage());
         }
+    }
+
+    /**
+     * Build the processor result array.
+     *
+     * @param string $result One of the RESULT_* constants.
+     * @param ?int $ledgerid Ledger row id when ACCEPTED/DUPLICATE.
+     * @param ?string $eventid provider_event_id when known.
+     * @param ?string $error Human-readable reason on rejection.
+     * @return array
+     */
+    private static function result(string $result, ?int $ledgerid, ?string $eventid, ?string $error): array {
+        return [
+            'result'    => $result,
+            'ledger_id' => $ledgerid,
+            'event_id'  => $eventid,
+            'error'     => $error,
+        ];
     }
 }

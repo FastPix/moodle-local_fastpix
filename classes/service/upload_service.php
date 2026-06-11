@@ -38,8 +38,23 @@ class upload_service {
     private const TABLE = 'local_fastpix_upload_session';
     /** @var int Session ttl seconds. */
     private const SESSION_TTL_SECONDS = 86400;
-    /** @var int Dedup ttl seconds. */
-    private const DEDUP_TTL_SECONDS   = 60;
+
+    /** @var string MUC area for upload dedup. */
+    private const DEDUP_AREA = 'upload_dedup';
+
+    /** @var string Access policy: public. */
+    private const POLICY_PUBLIC = 'public';
+    /** @var string Access policy: private. */
+    private const POLICY_PRIVATE = 'private';
+    /** @var string Access policy: DRM-protected. */
+    private const POLICY_DRM = 'drm';
+    /** @var string[] Allowed access policies. */
+    private const ACCESS_POLICIES = [self::POLICY_PUBLIC, self::POLICY_PRIVATE, self::POLICY_DRM];
+
+    /** @var string SSRF block tag (IPv4 / generic). */
+    private const SSRF_TAG_IP = 'blocked_ip:';
+    /** @var string SSRF block tag (IPv6). */
+    private const SSRF_TAG_IPV6 = 'blocked_ipv6:';
 
     /**
      * Auto-subtitle (Whisper) languages: code => display name. The spoken
@@ -96,14 +111,14 @@ public function create_file_upload_session(
     int $courseid = 0,
 ): \stdClass {
     // Gate on the EFFECTIVE access policy, not the raw $drmrequired flag: the
-    // policy can resolve to 'drm' via the caller's value or the admin
+    // policy can resolve to self::POLICY_DRM via the caller's value or the admin
     // default_access_policy config without $drmrequired being set. Either way,
-    // a 'drm' upload requires the W12 double-gate (drm_enabled()).
+    // a self::POLICY_DRM upload requires the W12 double-gate (drm_enabled()).
     $this->assert_drm_gate($this->resolve_access_policy($drmrequired, $accesspolicy));
 
     // Dedup window: same (userid, filename, size) within 60s returns the.
     // Existing session.
-    $cache = \cache::make('local_fastpix', 'upload_dedup');
+    $cache = \cache::make('local_fastpix', self::DEDUP_AREA);
     $hashkey = $this->dedup_key($userid, $metadata);
     $cached = $this->dedup_hit($cache, $hashkey);
     if ($cached !== null) {
@@ -157,14 +172,14 @@ public function create_url_pull_session(
     // SSRF guard runs BEFORE any gateway call (rule S6).
     $this->assert_ssrf_safe($sourceurl);
     // Gate on the EFFECTIVE access policy, not the raw $drmrequired flag: the
-    // policy can resolve to 'drm' via the caller's value or the admin
+    // policy can resolve to self::POLICY_DRM via the caller's value or the admin
     // default_access_policy config without $drmrequired being set. Either way,
-    // a 'drm' upload requires the W12 double-gate (drm_enabled()).
+    // a self::POLICY_DRM upload requires the W12 double-gate (drm_enabled()).
     $this->assert_drm_gate($this->resolve_access_policy($drmrequired, $accesspolicy));
 
     // Dedup window: same (userid, source_url) within 60s returns the.
     // Existing session row. Mirrors the file-upload dedup contract (W11).
-    $cache = \cache::make('local_fastpix', 'upload_dedup');
+    $cache = \cache::make('local_fastpix', self::DEDUP_AREA);
     $hashkey = $this->dedup_key_url($userid, $sourceurl);
     $cached = $this->dedup_hit($cache, $hashkey);
     if ($cached !== null) {
@@ -208,7 +223,7 @@ public function create_url_pull_session(
      * @param ?string $languagecode Required (and validated) when captionsmode = "auto".
      * @return \stdClass {session_id, upload_id, upload_url, expires_at}
      * @throws \invalid_parameter_exception on bad policy/captions/language.
-     * @throws drm_not_configured when policy is 'drm' but DRM is not configured.
+     * @throws drm_not_configured when policy is self::POLICY_DRM but DRM is not configured.
      */
 public function create_direct_upload_with_settings(
     int $userid,
@@ -218,14 +233,14 @@ public function create_direct_upload_with_settings(
     ?string $languagecode = null,
     int $courseid = 0,
 ): \stdClass {
-    if (!in_array($accesspolicy, ['public', 'private', 'drm'], true)) {
+    if (!in_array($accesspolicy, self::ACCESS_POLICIES, true)) {
         throw new \invalid_parameter_exception('accesspolicy:' . $accesspolicy);
     }
     if (!in_array($captionsmode, ['none', 'auto', 'vtt'], true)) {
         throw new \invalid_parameter_exception('captionsmode:' . $captionsmode);
     }
 
-    // W12 double-gate: 'drm' intent requires drm_enabled(); fail loud — never
+    // W12 double-gate: self::POLICY_DRM intent requires drm_enabled(); fail loud — never
     // silently downgrade a DRM request to an unprotected upload.
     $this->assert_drm_gate($accesspolicy);
 
@@ -241,18 +256,18 @@ public function create_direct_upload_with_settings(
         ];
     }
 
-    // DRM uploads send accessPolicy='drm' alongside the drmConfigurationId.
+    // DRM uploads send accessPolicy=self::POLICY_DRM alongside the drmConfigurationId.
     // FastPix REQUIRES this pairing — accessPolicy='private'+drmConfigurationId
     // is rejected with HTTP 400 ("drmConfigurationId is only applicable when
-    // accessPolicy is set to 'drm'"), verified live 2026-06-09.
+    // accessPolicy is set to self::POLICY_DRM"), verified live 2026-06-09.
     $fastpixpolicy = $accesspolicy;
-    $drmconfigid  = $accesspolicy === 'drm'
+    $drmconfigid  = $accesspolicy === self::POLICY_DRM
         ? feature_flag_service::instance()->drm_configuration_id()
         : null;
 
     // Double-submit guard (W11 spirit): identical settings from one user inside
     // the 60s window return the same session rather than a duplicate upload.
-    $cache   = \cache::make('local_fastpix', 'upload_dedup');
+    $cache   = \cache::make('local_fastpix', self::DEDUP_AREA);
     $hashkey = $this->dedup_key_settings($userid, $title, $accesspolicy, $captionsmode, $languagecode);
     $cached  = $this->dedup_hit($cache, $hashkey);
     if ($cached !== null) {
@@ -282,10 +297,12 @@ public function create_direct_upload_with_settings(
         $userid,
         $uploadid,
         $uploadurl,
-        $title,
-        $accesspolicy,
-        $captionsmode,
-        $languagecode,
+        [
+            'title'         => $title,
+            'access_policy' => $accesspolicy,
+            'captions_mode' => $captionsmode,
+            'language_code' => $languagecode,
+        ],
         $courseid,
     );
     $cache->set($hashkey, $session->id);
@@ -381,24 +398,20 @@ private function dedup_key_settings(
      * @param int $userid
      * @param string $uploadid
      * @param string $uploadurl
-     * @param string $title
-     * @param string $accesspolicy
-     * @param string $captionsmode
-     * @param ?string $languagecode
+     * @param array $settings {title:string, access_policy:string, captions_mode:string, language_code:?string}
+     * @param int $courseid
      * @return \stdClass
      */
 private function persist_session_with_settings(
     int $userid,
     string $uploadid,
     string $uploadurl,
-    string $title,
-    string $accesspolicy,
-    string $captionsmode,
-    ?string $languagecode,
+    array $settings,
     int $courseid = 0,
 ): \stdClass {
     global $DB;
     $now = time();
+    $languagecode = $settings['language_code'] ?? null;
     $row = (object)[
         'userid'        => $userid,
         'courseid'      => $courseid,
@@ -407,9 +420,9 @@ private function persist_session_with_settings(
         'fastpix_id'    => null,
         'source_url'    => null,
         'state'         => 'pending',
-        'title'         => $title,
-        'access_policy' => $accesspolicy,
-        'captions_mode' => $captionsmode,
+        'title'         => $settings['title'],
+        'access_policy' => $settings['access_policy'],
+        'captions_mode' => $settings['captions_mode'],
         'language_code' => ($languagecode !== null && $languagecode !== '') ? $languagecode : null,
         'timecreated'   => $now,
         'expires_at'    => $now + self::SESSION_TTL_SECONDS,
@@ -442,7 +455,7 @@ private function dedup_hit(\cache $cache, string $hashkey): ?\stdClass {
     /**
      * Resolve the parameters used by both file-upload and URL-pull session
      * creation paths: owner hash, effective access policy, effective max
-     * resolution, DRM config id (only populated when policy='drm'), and the
+     * resolution, DRM config id (only populated when policy=self::POLICY_DRM), and the
      * fastpix_metadata bag attached to the gateway call.
      *
      * @return array{owner_hash:string,access_policy:string,max_resolution:string,drm_config_id:?string,fastpix_metadata:array<string,string>}
@@ -461,7 +474,7 @@ private function resolve_upload_params(
     $ownerhash     = $this->owner_hash($userid);
     $accesspolicy  = $this->resolve_access_policy($drmrequired, $accesspolicy);
     $maxresolution = $this->resolve_max_resolution($maxresolution);
-    $drmconfigid  = $accesspolicy === 'drm'
+    $drmconfigid  = $accesspolicy === self::POLICY_DRM
         ? feature_flag_service::instance()->drm_configuration_id()
         : null;
     return [
@@ -521,7 +534,10 @@ public function get_status(int $sessionid, int $userid): \stdClass {
      */
 public function list_ready_for_course(int $courseid, int $userid): array {
     global $DB;
-    $sql = "SELECT a.*
+    // DISTINCT collapses the duplicate rows a same-asset re-upload would produce
+    // from the session join. Portable across all Moodle DBs (the asset table has
+    // no TEXT/BLOB columns, and the ORDER BY column is within a.*).
+    $sql = "SELECT DISTINCT a.*
               FROM {local_fastpix_asset} a
               JOIN {local_fastpix_upload_session} s ON s.fastpix_id = a.fastpix_id
              WHERE s.courseid = :courseid
@@ -534,14 +550,14 @@ public function list_ready_for_course(int $courseid, int $userid): array {
         'courseid' => $courseid,
         'userid'   => $userid,
         'ready'    => 'ready',
-        'drm'      => 'drm',
+        self::POLICY_DRM      => self::POLICY_DRM,
     ]);
     return array_values($rows);
 }
 
     /**
      * Resolve effective access_policy for an upload.
-     *   1. drm_required=true     → 'drm' (explicit DRM intent always wins)
+     *   1. drm_required=true     → self::POLICY_DRM (explicit DRM intent always wins)
      *   2. caller-passed value   → caller's choice (per-call override)
      *   3. admin config default  → default_access_policy (set in settings)
      *   4. hard-coded fallback   → 'private' (defensive — fail closed)
@@ -554,17 +570,13 @@ public function list_ready_for_course(int $courseid, int $userid): array {
      */
 private function resolve_access_policy(bool $drmrequired, ?string $callervalue): string {
     if ($drmrequired) {
-        return 'drm';
+        return self::POLICY_DRM;
     }
-    $allowed = ['public', 'private', 'drm'];
-    if ($callervalue !== null && $callervalue !== '' && in_array($callervalue, $allowed, true)) {
+    if ($callervalue !== null && $callervalue !== '' && in_array($callervalue, self::ACCESS_POLICIES, true)) {
         return $callervalue;
     }
     $configured = (string)get_config('local_fastpix', 'default_access_policy');
-    if (in_array($configured, $allowed, true)) {
-        return $configured;
-    }
-    return 'private';
+    return in_array($configured, self::ACCESS_POLICIES, true) ? $configured : self::POLICY_PRIVATE;
 }
 
     /**
@@ -590,15 +602,15 @@ private function resolve_max_resolution(?string $callervalue): string {
 
     /**
      * Assert the W12 double-gate for any upload whose effective access policy
-     * is 'drm': both feature_drm_enabled AND a non-empty drm_configuration_id
-     * must be set (feature_flag_service::drm_enabled()). Non-'drm' policies are
+     * is self::POLICY_DRM: both feature_drm_enabled AND a non-empty drm_configuration_id
+     * must be set (feature_flag_service::drm_enabled()). Non-self::POLICY_DRM policies are
      * always allowed.
      *
      * @param string $accesspolicy The resolved (effective) access policy.
-     * @throws drm_not_configured when policy is 'drm' but DRM is not configured.
+     * @throws drm_not_configured when policy is self::POLICY_DRM but DRM is not configured.
      */
 private function assert_drm_gate(string $accesspolicy): void {
-    if ($accesspolicy === 'drm' && !feature_flag_service::instance()->drm_enabled()) {
+    if ($accesspolicy === self::POLICY_DRM && !feature_flag_service::instance()->drm_enabled()) {
         throw new drm_not_configured('drm_required_but_not_configured');
     }
 }
@@ -772,10 +784,22 @@ private function assert_ssrf_safe(string $url): void {
         return;
     }
 
-    // Hostname: resolve A + AAAA records. dns_get_record returns false on.
-    // Failure; treat empty/false the same as gethostbynamel did. The.
-    // Residual TOCTOU on FastPix's later fetch is documented at the top.
-    // Of this method and is not a Moodle-side concern.
+    foreach ($this->resolve_host_ips($host) as $ip) {
+        $this->assert_ip_public($ip);
+    }
+}
+
+    /**
+     * Resolve a hostname to its A + AAAA record IPs for SSRF validation.
+     * dns_get_record returns false on failure; treat empty/false the same as
+     * gethostbynamel did. The residual TOCTOU on FastPix's later fetch is
+     * documented on assert_ssrf_safe and is not a Moodle-side concern.
+     *
+     * @param string $host
+     * @return string[]
+     * @throws ssrf_blocked when the host cannot be resolved.
+     */
+private function resolve_host_ips(string $host): array {
     $records = @dns_get_record($host, DNS_A | DNS_AAAA);
     if ($records === false || empty($records)) {
         throw new ssrf_blocked('unresolvable:' . $host);
@@ -783,18 +807,16 @@ private function assert_ssrf_safe(string $url): void {
     $ips = [];
     foreach ($records as $r) {
         if (isset($r['ip'])) {
-            $ips[] = $r['ip'];
-        }    // A.
+            $ips[] = $r['ip']; // A.
+        }
         if (isset($r['ipv6'])) {
-            $ips[] = $r['ipv6'];
-        }  // AAAA.
+            $ips[] = $r['ipv6']; // AAAA.
+        }
     }
     if (empty($ips)) {
         throw new ssrf_blocked('unresolvable:' . $host);
     }
-    foreach ($ips as $ip) {
-        $this->assert_ip_public($ip);
-    }
+    return $ips;
 }
 
     /**
@@ -807,71 +829,90 @@ private function assert_ssrf_safe(string $url): void {
      * @param string $ip
      */
 private function assert_ip_public(string $ip): void {
-    // IPv4 path — preserves backward-compatible error tag 'blocked_ip:'.
     if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-        if (
-            !filter_var(
-                $ip,
-                FILTER_VALIDATE_IP,
-                FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
-            )
-        ) {
-            throw new ssrf_blocked('blocked_ip:' . $ip);
-        }
-        // 169.254.0.0/16 Is link-local; FILTER_FLAG_NO_RES_RANGE catches it,.
-        // But be explicit about the AWS metadata IP for log clarity.
-        if ($ip === '169.254.169.254') {
-            throw new ssrf_blocked('blocked_ip:' . $ip);
-        }
+        $this->assert_ipv4_public($ip);
         return;
     }
-
-    // IPv6 path.
     if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
-        $packed = inet_pton($ip);
-        if ($packed === false || strlen($packed) !== 16) {
-            throw new ssrf_blocked('blocked_ipv6:' . $ip);
-        }
-        // Loopback ::1.
-        if ($packed === inet_pton('::1')) {
-            throw new ssrf_blocked('blocked_ipv6:' . $ip);
-        }
-        // Unspecified address (::).
-        if ($packed === inet_pton('::')) {
-            throw new ssrf_blocked('blocked_ipv6:' . $ip);
-        }
-        // ULA fc00::/7 — first byte top-7-bits = 1111110_.
-        if ((ord($packed[0]) & 0xfe) === 0xfc) {
-            throw new ssrf_blocked('blocked_ipv6:' . $ip);
-        }
-        // Link-local fe80::/10 — first 10 bits = 1111111010.
-        if (ord($packed[0]) === 0xfe && (ord($packed[1]) & 0xc0) === 0x80) {
-            throw new ssrf_blocked('blocked_ipv6:' . $ip);
-        }
-        // IPv4-mapped ::ffff:0:0/96 — first 80 bits = 0, next 16 = ffff.
-        $mappedprefix = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff";
-        if (substr($packed, 0, 12) === $mappedprefix) {
-            $unpacked = unpack('N', substr($packed, 12, 4));
-            if ($unpacked === false) {
-                throw new ssrf_blocked('blocked_ipv6:' . $ip);
-            }
-            $v4 = long2ip($unpacked[1]);
-            $this->assert_ip_public($v4); // Recursively re-validate as IPv4.
-            return;
-        }
-        // NAT64 64:ff9b::/96 — common synthesis prefix; trust nothing here.
-        $nat64prefix = "\x00\x64\xff\x9b\x00\x00\x00\x00\x00\x00\x00\x00";
-        if (substr($packed, 0, 12) === $nat64prefix) {
-            throw new ssrf_blocked('blocked_ipv6:' . $ip);
-        }
-        // AWS metadata over IPv6 (as documented for IMDSv2 dual-stack).
-        if ($packed === inet_pton('fd00:ec2::254')) {
-            throw new ssrf_blocked('blocked_ipv6:' . $ip);
-        }
-        return; // Public IPv6.
+        $this->assert_ipv6_public($ip);
+        return;
     }
-
     // Neither IPv4 nor IPv6 — reject defensively.
-    throw new ssrf_blocked('blocked_ip:' . $ip);
+    throw new ssrf_blocked(self::SSRF_TAG_IP . $ip);
+}
+
+    /**
+     * Assert that an IPv4 literal is publicly routable.
+     * Preserves the backward-compatible error tag self::SSRF_TAG_IP.
+     *
+     * @param string $ip
+     * @throws ssrf_blocked when private/reserved/metadata.
+     */
+private function assert_ipv4_public(string $ip): void {
+    if (
+        !filter_var(
+            $ip,
+            FILTER_VALIDATE_IP,
+            FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+        )
+    ) {
+        throw new ssrf_blocked(self::SSRF_TAG_IP . $ip);
+    }
+    // 169.254.0.0/16 is link-local; FILTER_FLAG_NO_RES_RANGE catches it,
+    // but be explicit about the AWS metadata IP for log clarity.
+    if ($ip === '169.254.169.254') {
+        throw new ssrf_blocked(self::SSRF_TAG_IP . $ip);
+    }
+}
+
+    /**
+     * Assert that an IPv6 literal is publicly routable, using explicit
+     * byte-pattern matching for private ranges (PHP's NO_PRIV_RANGE /
+     * NO_RES_RANGE flags do not reliably cover all IPv6 private ranges).
+     *
+     * @param string $ip
+     * @throws ssrf_blocked when loopback/ULA/link-local/mapped-private/NAT64/metadata.
+     */
+private function assert_ipv6_public(string $ip): void {
+    $packed = inet_pton($ip);
+    if ($packed === false || strlen($packed) !== 16) {
+        throw new ssrf_blocked(self::SSRF_TAG_IPV6 . $ip);
+    }
+    // Loopback ::1.
+    if ($packed === inet_pton('::1')) {
+        throw new ssrf_blocked(self::SSRF_TAG_IPV6 . $ip);
+    }
+    // Unspecified address (::).
+    if ($packed === inet_pton('::')) {
+        throw new ssrf_blocked(self::SSRF_TAG_IPV6 . $ip);
+    }
+    // ULA fc00::/7 — first byte top-7-bits = 1111110_.
+    if ((ord($packed[0]) & 0xfe) === 0xfc) {
+        throw new ssrf_blocked(self::SSRF_TAG_IPV6 . $ip);
+    }
+    // Link-local fe80::/10 — first 10 bits = 1111111010.
+    if (ord($packed[0]) === 0xfe && (ord($packed[1]) & 0xc0) === 0x80) {
+        throw new ssrf_blocked(self::SSRF_TAG_IPV6 . $ip);
+    }
+    // IPv4-mapped ::ffff:0:0/96 — first 80 bits = 0, next 16 = ffff.
+    $mappedprefix = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff";
+    if (substr($packed, 0, 12) === $mappedprefix) {
+        $unpacked = unpack('N', substr($packed, 12, 4));
+        if ($unpacked === false) {
+            throw new ssrf_blocked(self::SSRF_TAG_IPV6 . $ip);
+        }
+        $v4 = long2ip($unpacked[1]);
+        $this->assert_ip_public($v4); // Recursively re-validate as IPv4.
+        return;
+    }
+    // NAT64 64:ff9b::/96 — common synthesis prefix; trust nothing here.
+    $nat64prefix = "\x00\x64\xff\x9b\x00\x00\x00\x00\x00\x00\x00\x00";
+    if (substr($packed, 0, 12) === $nat64prefix) {
+        throw new ssrf_blocked(self::SSRF_TAG_IPV6 . $ip);
+    }
+    // AWS metadata over IPv6 (as documented for IMDSv2 dual-stack).
+    if ($packed === inet_pton('fd00:ec2::254')) {
+        throw new ssrf_blocked(self::SSRF_TAG_IPV6 . $ip);
+    }
 }
 }

@@ -58,13 +58,7 @@ class playback_service {
      * @return playback_payload
      */
     public static function resolve(string $fastpixid, int $userid): playback_payload {
-        $asset = asset_service::get_by_fastpix_id($fastpixid);
-        if ($asset === null) {
-            throw new asset_not_found($fastpixid);
-        }
-        if ($asset->status !== 'ready') {
-            throw new asset_not_ready($fastpixid . ' (status=' . $asset->status . ')');
-        }
+        $asset = self::require_ready_asset($fastpixid);
 
         // Public assets play without a token. Skip the signing-key bootstrap
         // and JWT mint entirely — attaching a token to a public playback id is
@@ -74,6 +68,36 @@ class playback_service {
             return playback_payload::from_asset_and_jwt($asset, '', 0, null, false, '');
         }
 
+        return self::mint_token_payload($asset);
+    }
+
+    /**
+     * Look up an asset and assert it is playable (present, not soft-deleted, ready).
+     *
+     * @throws asset_not_found  if asset missing or soft-deleted
+     * @throws asset_not_ready  if asset exists but status != 'ready'
+     * @param string $fastpixid
+     * @return object The asset summary DTO.
+     */
+    private static function require_ready_asset(string $fastpixid): object {
+        $asset = asset_service::get_by_fastpix_id($fastpixid);
+        if ($asset === null) {
+            throw new asset_not_found($fastpixid);
+        }
+        if ($asset->status !== 'ready') {
+            throw new asset_not_ready($fastpixid . ' (status=' . $asset->status . ')');
+        }
+        return $asset;
+    }
+
+    /**
+     * Mint a signed playback payload for a private (token-gated) asset.
+     *
+     * @throws \local_fastpix\exception\signing_key_missing  bubbled from JWT mint
+     * @param object $asset The ready, private asset summary DTO.
+     * @return playback_payload
+     */
+    private static function mint_token_payload(object $asset): playback_payload {
         // Lazy-bootstrap the signing keypair on first playback. Idempotent —
         // no-op if the key is already present. Doing it here (not in
         // jwt_signing_service) keeps the JWT layer free of credential/gateway

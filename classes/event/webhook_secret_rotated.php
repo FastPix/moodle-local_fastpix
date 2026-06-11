@@ -32,7 +32,11 @@ namespace local_fastpix\event;
  * @copyright  2026 FastPix Inc. <support@fastpix.io>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class webhook_secret_rotated extends \core\event\base {
+// Class name is snake_case by Moodle Frankenstyle (rule M2) — the event system and
+// autoloader resolve \local_fastpix\event\webhook_secret_rotated by this exact name.
+// SonarQube php:S101 (PascalCase) is a documented false positive; see
+// docs/review/SONARQUBE-2026-06-11.md §4.
+class webhook_secret_rotated extends \core\event\base { // NOSONAR
     /**
      * Init.
      */    protected function init() {

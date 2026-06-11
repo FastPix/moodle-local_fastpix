@@ -47,7 +47,8 @@ class signing_key_rotator extends \core\task\scheduled_task {
 
     /**
      * Web service main entry point.
-     */    public function execute(): void {
+     */
+    public function execute(): void {
         $createdat = (int)get_config('local_fastpix', 'signing_key_created_at');
 
         if ($createdat <= 0) {
@@ -64,6 +65,13 @@ class signing_key_rotator extends \core\task\scheduled_task {
         $oldkid = (string)get_config('local_fastpix', 'signing_key_id');
         $oldpem = (string)get_config('local_fastpix', 'signing_private_key');
 
+        // Capture the existing "previous" slot so a failed rotation can restore
+        // it exactly, instead of destroying the prior fallback key that JWT
+        // verification may still need during the rotation grace window.
+        $prevkid = (string)get_config('local_fastpix', 'signing_key_id_previous');
+        $prevpem = (string)get_config('local_fastpix', 'signing_private_key_previous');
+        $prevrotatedat = (int)get_config('local_fastpix', 'signing_key_rotated_at');
+
         try {
             // 1. Move the current key into the "previous" slot.
             set_config('signing_key_id_previous', $oldkid, 'local_fastpix');
@@ -76,7 +84,9 @@ class signing_key_rotator extends \core\task\scheduled_task {
             $newpem = (string)($response->privateKey ?? '');
 
             if ($newkid === '' || $newpem === '') {
-                throw new \RuntimeException('gateway returned empty signing key payload');
+                throw new \local_fastpix\exception\signing_key_missing(
+                    'gateway returned empty signing key payload'
+                );
             }
 
             // 3. Store the new key (PEM base64-encoded for safe single-line storage).
@@ -87,14 +97,15 @@ class signing_key_rotator extends \core\task\scheduled_task {
             // Log only the kid — never the PEM (S1).
             mtrace("signing_key_rotator: rotated to new kid={$newkid}");
         } catch (\Throwable $e) {
-            // Roll back the "previous" slot to whatever it was so we don't.
-            // Leave a half-rotated state on the next run.
-            set_config('signing_key_id_previous', '', 'local_fastpix');
-            set_config('signing_private_key_previous', '', 'local_fastpix');
-            set_config('signing_key_rotated_at', 0, 'local_fastpix');
+            // Restore the "previous" slot to exactly what it was before this
+            // run, so a failed rotation doesn't destroy the fallback key that
+            // JWT verification may still need.
+            set_config('signing_key_id_previous', $prevkid, 'local_fastpix');
+            set_config('signing_private_key_previous', $prevpem, 'local_fastpix');
+            set_config('signing_key_rotated_at', $prevrotatedat, 'local_fastpix');
 
             mtrace('signing_key_rotator: rotation failed; existing key retained: '
             . $e->getMessage());
         }
-}
+    }
 }

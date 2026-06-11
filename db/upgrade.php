@@ -34,21 +34,7 @@ function xmldb_local_fastpix_upgrade($oldversion) {
 
     // T3.5 (2026-05-05): retry-counter column for GDPR delete cap.
     if ($oldversion < 2026050504) {
-        $table = new xmldb_table('local_fastpix_asset');
-        $field = new xmldb_field(
-            'gdpr_delete_attempts',
-            XMLDB_TYPE_INTEGER,
-            '10',
-            null,
-            XMLDB_NOTNULL,
-            null,
-            '0',
-            'gdpr_delete_pending_at',
-        );
-        if (!$dbman->field_exists($table, $field)) {
-            $dbman->add_field($table, $field);
-        }
-
+        local_fastpix_upgrade_2026050504($dbman);
         upgrade_plugin_savepoint(true, 2026050504, 'local', 'fastpix');
     }
 
@@ -62,23 +48,7 @@ function xmldb_local_fastpix_upgrade($oldversion) {
     // - purge_soft_deleted_assets task auto-registered via db/tasks.php.
     // On upgrade; no schema change required.
     if ($oldversion < 2026051200) {
-        $salt = (string)get_config('local_fastpix', 'user_hash_salt');
-        if (strlen($salt) < 64) {
-            set_config('user_hash_salt', random_string(64), 'local_fastpix');
-        }
-
-        $synctable = new xmldb_table('local_fastpix_sync_state');
-        if ($dbman->table_exists($synctable)) {
-            $dbman->drop_table($synctable);
-        }
-
-        if (get_config('local_fastpix', 'default_access_policy') === false) {
-            set_config('default_access_policy', 'private', 'local_fastpix');
-        }
-        if (get_config('local_fastpix', 'max_resolution') === false) {
-            set_config('max_resolution', '1080p', 'local_fastpix');
-        }
-
+        local_fastpix_upgrade_2026051200($dbman);
         upgrade_plugin_savepoint(true, 2026051200, 'local', 'fastpix');
     }
 
@@ -96,41 +66,14 @@ function xmldb_local_fastpix_upgrade($oldversion) {
     // create_upload_session web service can accept title + access policy +
     // captions and apply them to the FastPix upload.
     if ($oldversion < 2026061000) {
-        $table = new xmldb_table('local_fastpix_upload_session');
-        $fields = [
-            new xmldb_field('title', XMLDB_TYPE_CHAR, '255', null, null, null, null, 'state'),
-            new xmldb_field('access_policy', XMLDB_TYPE_CHAR, '16', null, null, null, null, 'title'),
-            new xmldb_field('captions_mode', XMLDB_TYPE_CHAR, '8', null, null, null, null, 'access_policy'),
-            new xmldb_field('language_code', XMLDB_TYPE_CHAR, '16', null, null, null, null, 'captions_mode'),
-        ];
-        foreach ($fields as $field) {
-            if (!$dbman->field_exists($table, $field)) {
-                $dbman->add_field($table, $field);
-            }
-        }
-
+        local_fastpix_upgrade_2026061000($dbman);
         upgrade_plugin_savepoint(true, 2026061000, 'local', 'fastpix');
     }
 
     // 2026061005: reference-tracking table so a shared asset is only released
     // to FastPix when its last consumer unlinks (asset_service ref counting).
     if ($oldversion < 2026061005) {
-        $table = new xmldb_table('local_fastpix_asset_ref');
-        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
-        $table->add_field('asset_id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
-        $table->add_field('consumer_key', XMLDB_TYPE_CHAR, '191', null, XMLDB_NOTNULL, null, null);
-        $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
-        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
-        $table->add_key('fk_asset', XMLDB_KEY_FOREIGN, ['asset_id'], 'local_fastpix_asset', ['id']);
-        $table->add_key('uk_asset_consumer', XMLDB_KEY_UNIQUE, ['asset_id', 'consumer_key']);
-        $index = new xmldb_index('idx_asset', XMLDB_INDEX_NOTUNIQUE, ['asset_id']);
-        if (!$dbman->table_exists($table)) {
-            $dbman->create_table($table);
-        }
-        if (!$dbman->index_exists($table, $index)) {
-            $dbman->add_index($table, $index);
-        }
-
+        local_fastpix_upgrade_2026061005($dbman);
         upgrade_plugin_savepoint(true, 2026061005, 'local', 'fastpix');
     }
 
@@ -138,21 +81,7 @@ function xmldb_local_fastpix_upgrade($oldversion) {
     // asset is scheduled for release, so the warning precedes removal by a
     // configurable lead time (release_unattached_assets task, Issue 3).
     if ($oldversion < 2026061006) {
-        $table = new xmldb_table('local_fastpix_asset');
-        $field = new xmldb_field(
-            'unattached_warned_at',
-            XMLDB_TYPE_INTEGER,
-            '10',
-            null,
-            null,
-            null,
-            null,
-            'gdpr_delete_attempts',
-        );
-        if (!$dbman->field_exists($table, $field)) {
-            $dbman->add_field($table, $field);
-        }
-
+        local_fastpix_upgrade_add_asset_int_field($dbman, 'unattached_warned_at', 'gdpr_delete_attempts');
         upgrade_plugin_savepoint(true, 2026061006, 'local', 'fastpix');
     }
 
@@ -161,21 +90,7 @@ function xmldb_local_fastpix_upgrade($oldversion) {
     // that is embedded in live content (assignment, quiz, page, etc.) even
     // though it holds no asset_ref row.
     if ($oldversion < 2026061007) {
-        $table = new xmldb_table('local_fastpix_asset');
-        $field = new xmldb_field(
-            'last_seen_at',
-            XMLDB_TYPE_INTEGER,
-            '10',
-            null,
-            null,
-            null,
-            null,
-            'unattached_warned_at',
-        );
-        if (!$dbman->field_exists($table, $field)) {
-            $dbman->add_field($table, $field);
-        }
-
+        local_fastpix_upgrade_add_asset_int_field($dbman, 'last_seen_at', 'unattached_warned_at');
         upgrade_plugin_savepoint(true, 2026061007, 'local', 'fastpix');
     }
 
@@ -183,23 +98,163 @@ function xmldb_local_fastpix_upgrade($oldversion) {
     // session so the editor picker can list a teacher's ready, non-DRM videos
     // scoped to the current course.
     if ($oldversion < 2026061009) {
-        $table = new xmldb_table('local_fastpix_upload_session');
-        $field = new xmldb_field(
-            'courseid',
-            XMLDB_TYPE_INTEGER,
-            '10',
-            null,
-            XMLDB_NOTNULL,
-            null,
-            '0',
-            'userid',
-        );
-        if (!$dbman->field_exists($table, $field)) {
-            $dbman->add_field($table, $field);
-        }
-
+        local_fastpix_upgrade_2026061009($dbman);
         upgrade_plugin_savepoint(true, 2026061009, 'local', 'fastpix');
     }
 
+    // 2026061100: index the upload_session columns the editor picker and the
+    // webhook owner-backfill join on (courseid filter, fastpix_id join/OR-lookup)
+    // so neither performs a table scan as upload volume grows.
+    if ($oldversion < 2026061100) {
+        local_fastpix_upgrade_2026061100($dbman);
+        upgrade_plugin_savepoint(true, 2026061100, 'local', 'fastpix');
+    }
+
     return true;
+}
+
+/**
+ * Add an integer column to local_fastpix_asset if it does not already exist.
+ *
+ * Shared helper for the simple single-column asset upgrades (2026061006, 2026061007).
+ *
+ * @param database_manager $dbman The database manager.
+ * @param string $name The field name to add.
+ * @param string $after The existing field this column is placed after.
+ */
+function local_fastpix_upgrade_add_asset_int_field($dbman, $name, $after) {
+    $table = new xmldb_table('local_fastpix_asset');
+    $field = new xmldb_field($name, XMLDB_TYPE_INTEGER, '10', null, null, null, null, $after);
+    if (!$dbman->field_exists($table, $field)) {
+        $dbman->add_field($table, $field);
+    }
+}
+
+/**
+ * Upgrade step 2026050504: retry-counter column for the GDPR delete cap.
+ *
+ * @param database_manager $dbman The database manager.
+ */
+function local_fastpix_upgrade_2026050504($dbman) {
+    $table = new xmldb_table('local_fastpix_asset');
+    $field = new xmldb_field(
+        'gdpr_delete_attempts',
+        XMLDB_TYPE_INTEGER,
+        '10',
+        null,
+        XMLDB_NOTNULL,
+        null,
+        '0',
+        'gdpr_delete_pending_at',
+    );
+    if (!$dbman->field_exists($table, $field)) {
+        $dbman->add_field($table, $field);
+    }
+}
+
+/**
+ * Upgrade step 2026051200: V1.0 production-readiness cleanup (salt, sync_state, config seeds).
+ *
+ * @param database_manager $dbman The database manager.
+ */
+function local_fastpix_upgrade_2026051200($dbman) {
+    $salt = (string)get_config('local_fastpix', 'user_hash_salt');
+    if (strlen($salt) < 64) {
+        set_config('user_hash_salt', random_string(64), 'local_fastpix');
+    }
+
+    $synctable = new xmldb_table('local_fastpix_sync_state');
+    if ($dbman->table_exists($synctable)) {
+        $dbman->drop_table($synctable);
+    }
+
+    if (get_config('local_fastpix', 'default_access_policy') === false) {
+        set_config('default_access_policy', 'private', 'local_fastpix');
+    }
+    if (get_config('local_fastpix', 'max_resolution') === false) {
+        set_config('max_resolution', '1080p', 'local_fastpix');
+    }
+}
+
+/**
+ * Upgrade step 2026061000: store chosen upload settings on the upload_session row.
+ *
+ * @param database_manager $dbman The database manager.
+ */
+function local_fastpix_upgrade_2026061000($dbman) {
+    $table = new xmldb_table('local_fastpix_upload_session');
+    $fields = [
+        new xmldb_field('title', XMLDB_TYPE_CHAR, '255', null, null, null, null, 'state'),
+        new xmldb_field('access_policy', XMLDB_TYPE_CHAR, '16', null, null, null, null, 'title'),
+        new xmldb_field('captions_mode', XMLDB_TYPE_CHAR, '8', null, null, null, null, 'access_policy'),
+        new xmldb_field('language_code', XMLDB_TYPE_CHAR, '16', null, null, null, null, 'captions_mode'),
+    ];
+    foreach ($fields as $field) {
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+    }
+}
+
+/**
+ * Upgrade step 2026061005: reference-tracking table for asset ref counting.
+ *
+ * @param database_manager $dbman The database manager.
+ */
+function local_fastpix_upgrade_2026061005($dbman) {
+    $table = new xmldb_table('local_fastpix_asset_ref');
+    $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+    $table->add_field('asset_id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+    $table->add_field('consumer_key', XMLDB_TYPE_CHAR, '191', null, XMLDB_NOTNULL, null, null);
+    $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+    $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+    $table->add_key('fk_asset', XMLDB_KEY_FOREIGN, ['asset_id'], 'local_fastpix_asset', ['id']);
+    $table->add_key('uk_asset_consumer', XMLDB_KEY_UNIQUE, ['asset_id', 'consumer_key']);
+    $index = new xmldb_index('idx_asset', XMLDB_INDEX_NOTUNIQUE, ['asset_id']);
+    if (!$dbman->table_exists($table)) {
+        $dbman->create_table($table);
+    }
+    if (!$dbman->index_exists($table, $index)) {
+        $dbman->add_index($table, $index);
+    }
+}
+
+/**
+ * Upgrade step 2026061009: make uploads course-aware (courseid on upload_session).
+ *
+ * @param database_manager $dbman The database manager.
+ */
+function local_fastpix_upgrade_2026061009($dbman) {
+    $table = new xmldb_table('local_fastpix_upload_session');
+    $field = new xmldb_field(
+        'courseid',
+        XMLDB_TYPE_INTEGER,
+        '10',
+        null,
+        XMLDB_NOTNULL,
+        null,
+        '0',
+        'userid',
+    );
+    if (!$dbman->field_exists($table, $field)) {
+        $dbman->add_field($table, $field);
+    }
+}
+
+/**
+ * Upgrade step 2026061100: index upload_session columns used by the picker and backfill join.
+ *
+ * @param database_manager $dbman The database manager.
+ */
+function local_fastpix_upgrade_2026061100($dbman) {
+    $table = new xmldb_table('local_fastpix_upload_session');
+    $indexes = [
+        new xmldb_index('idx_fastpix_id', XMLDB_INDEX_NOTUNIQUE, ['fastpix_id']),
+        new xmldb_index('idx_courseid', XMLDB_INDEX_NOTUNIQUE, ['courseid']),
+    ];
+    foreach ($indexes as $index) {
+        if (!$dbman->index_exists($table, $index)) {
+            $dbman->add_index($table, $index);
+        }
+    }
 }

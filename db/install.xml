@@ -79,6 +79,8 @@
       <INDEXES>
         <INDEX NAME="idx_expires"      UNIQUE="false" FIELDS="expires_at"/>
         <INDEX NAME="idx_user_created" UNIQUE="false" FIELDS="userid, timecreated"/>
+        <INDEX NAME="idx_fastpix_id"   UNIQUE="false" FIELDS="fastpix_id"/>
+        <INDEX NAME="idx_courseid"     UNIQUE="false" FIELDS="courseid"/>
       </INDEXES>
     </TABLE>
 

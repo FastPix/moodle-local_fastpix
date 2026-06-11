@@ -52,27 +52,21 @@ class webhook_event_pruner extends \core\task\scheduled_task {
 
     /**
      * Web service main entry point.
-     */    public function execute(): void {
+     */
+    public function execute(): void {
         global $DB;
 
         $cutoff = time() - self::RETENTION_SECONDS;
+        $where = "status = :status AND received_at < :cutoff";
+        $params = ['status' => 'processed', 'cutoff' => $cutoff];
 
         try {
-            $count = $DB->count_records_select(
-                self::TABLE,
-                "status = :status AND received_at < :cutoff",
-                ['status' => 'processed', 'cutoff' => $cutoff],
-            );
-
-            $DB->delete_records_select(
-                self::TABLE,
-                "status = :status AND received_at < :cutoff",
-                ['status' => 'processed', 'cutoff' => $cutoff],
-            );
+            $count = $DB->count_records_select(self::TABLE, $where, $params);
+            $DB->delete_records_select(self::TABLE, $where, $params);
 
             mtrace("webhook_event_pruner: deleted {$count} processed event(s) older than 90 days");
         } catch (\Throwable $e) {
             mtrace('webhook_event_pruner: prune failed: ' . $e->getMessage());
         }
-}
+    }
 }

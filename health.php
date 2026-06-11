@@ -30,6 +30,16 @@ define('NO_MOODLE_COOKIES', true);
 
 require_once(__DIR__ . '/../../config.php');
 
+// Admin kill-switch: when explicitly disabled, the endpoint is invisible to
+// anonymous callers. Unset (legacy installs) stays enabled to preserve any
+// existing uptime monitoring.
+if (get_config('local_fastpix', 'enablehealthendpoint') === '0') {
+    http_response_code(404);
+    header('Content-Type: application/json');
+    echo json_encode(['error' => 'not_found']);
+    die();
+}
+
 $result = \local_fastpix\health\runner::run(getremoteaddr() ?: 'unknown');
 
 http_response_code($result['http_code']);

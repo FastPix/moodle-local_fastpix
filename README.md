@@ -157,6 +157,32 @@ can override them per activity.
   configuration).
 - **Default maximum resolution**: up to `1080p` (the default).
 
+### Retention & cleanup
+
+The **Retention & cleanup** section controls when abandoned uploads and
+unattached videos are swept. The warning lead time must be shorter than
+the grace period.
+
+- **Stale upload-session lifetime**: how long an upload session that
+  never became a video is kept before the orphan sweeper cancels the
+  FastPix upload and deletes the session row. Default 1 day.
+- **Unattached video grace period**: how long a ready video may stay
+  unattached to any activity before it is released — soft-deleted, then
+  permanently removed by the 7-day purge. Default 1 week.
+- **Unattached video warning lead time**: how long before release the
+  owner is warned that an unattached video will be removed, giving them
+  time to attach it. Must be less than the grace period. Default 2 days.
+- **Automatically remove unattached videos**: when enabled, ready videos
+  with no activity reference that haven't been rendered anywhere for the
+  grace period are soft-deleted, then purged. When disabled (the
+  default), owners are only notified and nothing is deleted
+  automatically.
+
+> **Important:** Keep **Automatically remove unattached videos** disabled
+> until the FastPix filter and editor plugins report video usage.
+> Otherwise a video embedded through one of those plugins could be
+> removed while still in use.
+
 ### Webhook
 
 FastPix uses webhooks to tell Moodle when an upload finishes processing
@@ -216,6 +242,10 @@ video features.
 | **API Secret** | API Secret paired with the API Key. Stored in `config_plugins` using `admin_setting_configpasswordunmask`. | Empty |
 | **Default access policy** | Playback access policy applied to newly uploaded videos. | Private - authenticated playback required |
 | **Default maximum resolution** | Maximum resolution allowed for newly uploaded videos. | `1080p` |
+| **Stale upload-session lifetime** | How long an upload session that never became a video is kept before the orphan sweeper cancels the FastPix upload and deletes the session row. | 1 day |
+| **Unattached video grace period** | How long a ready video may stay unattached to any activity before it is released (soft-deleted, then purged after 7 days). | 1 week |
+| **Unattached video warning lead time** | How long before release the owner is warned that an unattached video will be removed. Must be less than the grace period. | 2 days |
+| **Automatically remove unattached videos** | When enabled, unattached videos with no usage are soft-deleted after the grace period. When disabled, owners are only notified. | Disabled |
 | **Enable DRM** | Turn on DRM-protected playback. Requires the DRM Configuration ID to also be set. | Disabled |
 | **DRM Configuration ID** | Identifier from your FastPix dashboard. Required when **Enable DRM** is on. | Empty |
 | **Webhook URL** | Read-only. Copy this into the FastPix dashboard when registering the webhook. | Auto-generated |

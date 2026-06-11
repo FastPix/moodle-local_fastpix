@@ -93,32 +93,11 @@ class projector {
     private function project_inside_lock(\stdClass $event, string $fastpixid): void {
         global $DB;
 
-        $row = $DB->get_record(self::TABLE, ['fastpix_id' => $fastpixid]);
         $eventtype = (string)($event->type ?? '');
 
-        if ($row === false) {
-            // Real FastPix direct uploads never emit `video.media.created`;
-            // They go straight from `video.media.upload` (no asset yet) to.
-            // `Video.upload.media_created` (asset exists, has playbackIds).
-            // To `video.media.ready`. Out-of-order delivery may also drop the.
-            // Earlier of those two. Accept any of these as a row-insert trigger.
-            // — `video.media.upload` is the only one that does NOT carry the.
-            // Asset shape and is skipped (the next event will create the row).
-            $inserttriggers = [
-            'video.media.created',
-            'video.upload.media_created',
-            'video.media.ready',
-            'video.media.updated',
-            ];
-            if (in_array($eventtype, $inserttriggers, true)) {
-                $row = $this->insert_from_created_event($event, $fastpixid);
-            } else {
-                debugging(
-                    "projector: event {$eventtype} for unknown asset {$fastpixid}",
-                    DEBUG_DEVELOPER,
-                );
-                return;
-            }
+        $row = $this->ensure_row($event, $fastpixid, $eventtype);
+        if ($row === null) {
+            return;
         }
 
         if ($this->is_out_of_order($event, $row)) {
@@ -148,6 +127,49 @@ class projector {
         // After projecting media events, link any matching upload_session.
         // Row by upload_id == fastpix_id (URL pulls + direct uploads).
         $this->link_upload_session((string)$row->fastpix_id);
+    }
+
+    /**
+     * Fetch the asset row for this event, inserting it when the event type is
+     * a valid row-insert trigger. Returns null when the event is for an unknown
+     * asset and should be skipped (the next event will create the row).
+     *
+     * Real FastPix direct uploads never emit `video.media.created`; they go
+     * straight from `video.media.upload` (no asset yet) to
+     * `video.upload.media_created` (asset exists, has playbackIds) to
+     * `video.media.ready`. Out-of-order delivery may also drop the earlier of
+     * those two. Accept any of these as a row-insert trigger —
+     * `video.media.upload` is the only one that does NOT carry the asset shape
+     * and is skipped.
+     *
+     * @param \stdClass $event
+     * @param string $fastpixid
+     * @param string $eventtype
+     * @return ?\stdClass The asset row, or null to skip this event.
+     */
+    private function ensure_row(\stdClass $event, string $fastpixid, string $eventtype): ?\stdClass {
+        global $DB;
+
+        $row = $DB->get_record(self::TABLE, ['fastpix_id' => $fastpixid]);
+        if ($row !== false) {
+            return $row;
+        }
+
+        $inserttriggers = [
+            'video.media.created',
+            'video.upload.media_created',
+            'video.media.ready',
+            'video.media.updated',
+        ];
+        if (in_array($eventtype, $inserttriggers, true)) {
+            return $this->insert_from_created_event($event, $fastpixid);
+        }
+
+        debugging(
+            "projector: event {$eventtype} for unknown asset {$fastpixid}",
+            DEBUG_DEVELOPER,
+        );
+        return null;
     }
 
     /**
@@ -199,11 +221,8 @@ class projector {
         $eventat = $this->event_timestamp($event);
         $lastat  = (int)$row->last_event_at;
 
-        if ($eventat < $lastat) {
-            return true;
-        }
-        if ($eventat > $lastat) {
-            return false;
+        if ($eventat !== $lastat) {
+            return $eventat < $lastat;
         }
         // Equal timestamps — tiebreak by event_id; smaller-or-equal IDs lose.
         return strcmp((string)$event->id, (string)$row->last_event_id) <= 0;
@@ -228,54 +247,90 @@ class projector {
                 // The row was inserted from an earlier `.upload` event the.
                 // Playback id needs to be applied here.
                 $this->apply_first_playback_id($data, $row);
-                return true;
+                break;
 
             case 'video.media.upload':
-                if (isset($data->status)) {
-                    $row->status = (string)$data->status;
-                }
-                return true;
+                $this->apply_status($data, $row);
+                break;
 
             case 'video.upload.media_created':
-                $this->apply_first_playback_id($data, $row);
-                if ($row->status === 'waiting' || $row->status === '') {
-                    $row->status = 'created';
-                }
-                return true;
+                $this->apply_media_created($data, $row);
+                break;
 
             case 'video.media.ready':
-                $row->status = 'ready';
-                $this->apply_first_playback_id($data, $row);
-                $duration = $this->parse_duration($data->duration ?? null);
-                if ($duration !== null) {
-                    $row->duration = $duration;
-                }
-                $row->has_captions = $this->count_caption_tracks($data) > 0 ? 1 : 0;
-                return true;
+                $this->apply_ready($data, $row);
+                break;
 
             case 'video.media.updated':
-                if (isset($data->status)) {
-                    $row->status = (string)$data->status;
-                }
-                $duration = $this->parse_duration($data->duration ?? null);
-                if ($duration !== null) {
-                    $row->duration = $duration;
-                }
-                return true;
+                $this->apply_status($data, $row);
+                $this->apply_duration($data, $row);
+                break;
 
             case 'video.media.failed':
                 $row->status = 'errored';
-                return true;
+                break;
 
             case 'video.media.deleted':
                 $row->deleted_at = time();
-                return true;
+                break;
 
             default:
                 // Unhandled type — let event_dispatcher (Phase 4) take over.
                 debugging("projector: no handler for {$type}", DEBUG_DEVELOPER);
                 return false;
         }
+        return true;
+    }
+
+    /**
+     * Apply data.status onto the row when present.
+     *
+     * @param \stdClass $data
+     * @param \stdClass $row
+     */
+    private function apply_status(\stdClass $data, \stdClass $row): void {
+        if (isset($data->status)) {
+            $row->status = (string)$data->status;
+        }
+    }
+
+    /**
+     * Apply data.duration onto the row when parseable.
+     *
+     * @param \stdClass $data
+     * @param \stdClass $row
+     */
+    private function apply_duration(\stdClass $data, \stdClass $row): void {
+        $duration = $this->parse_duration($data->duration ?? null);
+        if ($duration !== null) {
+            $row->duration = $duration;
+        }
+    }
+
+    /**
+     * Apply a `video.upload.media_created` event onto the row.
+     *
+     * @param \stdClass $data
+     * @param \stdClass $row
+     */
+    private function apply_media_created(\stdClass $data, \stdClass $row): void {
+        $this->apply_first_playback_id($data, $row);
+        if ($row->status === 'waiting' || $row->status === '') {
+            $row->status = 'created';
+        }
+    }
+
+    /**
+     * Apply a `video.media.ready` event onto the row.
+     *
+     * @param \stdClass $data
+     * @param \stdClass $row
+     */
+    private function apply_ready(\stdClass $data, \stdClass $row): void {
+        $row->status = 'ready';
+        $this->apply_first_playback_id($data, $row);
+        $this->apply_duration($data, $row);
+        $row->has_captions = $this->count_caption_tracks($data) > 0 ? 1 : 0;
     }
 
     /**
@@ -372,9 +427,8 @@ class projector {
      * @return ?float
      */
     private function parse_duration($value): ?float {
-        if ($value === null || $value === '') {
-            return null;
-        }
+        // is_numeric() is false for null and '', so the missing-value case
+        // falls through to the trailing null return — no separate guard needed.
         if (is_numeric($value)) {
             return (float)$value;
         }
@@ -465,27 +519,5 @@ class projector {
         if (!empty($playbackid)) {
             $cache->delete(\local_fastpix\util\cache_keys::playback($playbackid));
         }
-    }
-
-    /**
-     * Reflection seam for tests that verify the projector targets the same
-     * keys as asset_service. Formula lives in
-     * \local_fastpix\util\cache_keys.
-     *
-     * @param string $fastpixid
-     * @return string
-     */
-    private function cache_key_fastpix(string $fastpixid): string {
-        return \local_fastpix\util\cache_keys::fastpix($fastpixid);
-    }
-
-    /**
-     * Cache helper for key playback.
-     *
-     * @param string $playbackid
-     * @return string
-     */
-    private function cache_key_playback(string $playbackid): string {
-        return \local_fastpix\util\cache_keys::playback($playbackid);
     }
 }

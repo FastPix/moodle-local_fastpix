@@ -66,10 +66,13 @@ class gateway {
 
     /**
      * Max response body length the gateway will decode (defensive).
-     */    private const MAX_RESPONSE_BYTES = 5242880; // 5 MiB.
+     */
+    private const MAX_RESPONSE_BYTES = 5242880; // 5 MiB.
+
+    /** @var string Path prefix for on-demand media endpoints. */
+    private const ON_DEMAND_PREFIX = '/v1/on-demand/';
 
     /** @var ?self $instance */
-    /** @var mixed */
     private static ?self $instance = null;
 
     /**
@@ -103,6 +106,45 @@ class gateway {
             );
         }
         return self::$instance;
+    }
+
+    /**
+     * Test-only construction seam.
+     *
+     * Builds a gateway with injected collaborators, bypassing the singleton so
+     * unit tests can supply mocks without reflecting into private members.
+     * Guarded by PHPUNIT_TEST so it is unreachable in production.
+     *
+     * @param \core\http_client $http The (mocked) HTTP client.
+     * @param \cache_application $breakercache The circuit-breaker cache.
+     * @param credential_service $credentials The (mocked) credential service.
+     * @return self
+     */
+    public static function create_for_testing(
+        \core\http_client $http,
+        \cache_application $breakercache,
+        credential_service $credentials
+    ): self {
+        if (!defined('PHPUNIT_TEST') || !PHPUNIT_TEST) {
+            throw new \coding_exception('gateway::create_for_testing is only available under PHPUnit');
+        }
+        return new self($http, $breakercache, $credentials);
+    }
+
+    /**
+     * Test-only singleton override.
+     *
+     * Replaces the shared instance with a (typically mocked) gateway so
+     * external-layer tests can stub HTTP behaviour without reflecting into the
+     * private $instance. Guarded by PHPUNIT_TEST so it is unreachable in production.
+     *
+     * @param self $instance The replacement (mock) gateway.
+     */
+    public static function set_instance_for_testing(self $instance): void {
+        if (!defined('PHPUNIT_TEST') || !PHPUNIT_TEST) {
+            throw new \coding_exception('gateway::set_instance_for_testing is only available under PHPUnit');
+        }
+        self::$instance = $instance;
     }
 
     /**
@@ -164,7 +206,7 @@ public function input_video_direct_upload(
     // PUT-signed URL FastPix returns 405 Method Not Allowed).
     return $this->request(
         'POST',
-        '/v1/on-demand/upload',
+        self::ON_DEMAND_PREFIX . 'upload',
         $body,
         self::PROFILE_STANDARD,
         $this->idempotency_key('input_video_direct_upload', $ownerhash, $body),
@@ -220,7 +262,7 @@ public function media_create_from_url(
 public function get_media(string $fastpixid): \stdClass {
     return $this->request(
         'GET',
-        '/v1/on-demand/' . rawurlencode($fastpixid),
+        self::ON_DEMAND_PREFIX . rawurlencode($fastpixid),
         null,
         self::PROFILE_HOT,
         null,
@@ -235,7 +277,7 @@ public function get_media(string $fastpixid): \stdClass {
 public function delete_media(string $fastpixid): void {
     $this->request(
         'DELETE',
-        '/v1/on-demand/' . rawurlencode($fastpixid),
+        self::ON_DEMAND_PREFIX . rawurlencode($fastpixid),
         null,
         self::PROFILE_STANDARD,
         $this->idempotency_key('delete_media', $fastpixid, null),
@@ -267,7 +309,7 @@ public function add_media_track(
     ];
     return $this->request(
         'POST',
-        '/v1/on-demand/' . rawurlencode($mediaid) . '/tracks',
+        self::ON_DEMAND_PREFIX . rawurlencode($mediaid) . '/tracks',
         $body,
         self::PROFILE_STANDARD,
         $this->idempotency_key('add_media_track', $mediaid, $body),
@@ -350,10 +392,15 @@ private function request(
 ): \stdClass {
     $endpointkey = $this->endpoint_key($method, $path);
     $requestid   = 'req_' . random_string(12);
-    $host         = $this->host_from_base();
+    $logctx      = [
+        'method'    => $method,
+        'host'      => $this->host_from_base(),
+        'path'      => $path,
+        'requestid' => $requestid,
+    ];
 
     if ($this->breaker_is_open($endpointkey)) {
-        $this->log_call($endpointkey, 0, 0, 0, $profile, 'open', $method, $host, $path, $requestid);
+        $this->log_call($endpointkey, 0, 0, 0, $profile, 'open', $logctx);
         throw new gateway_unavailable("circuit_open:{$endpointkey}");
     }
 
@@ -361,10 +408,10 @@ private function request(
     $attempt = 0;
     $lasterror = null;
     $lastbody  = '';
-    $delayms = 0;
 
     while ($attempt < self::RETRY_MAX_ATTEMPTS) {
         $attempt++;
+        $delayms = 0;
 
         try {
             $response = $this->http->request($method, $this->base_url() . $path, [
@@ -383,7 +430,7 @@ private function request(
 
             $status = $response->getStatusCode();
             $latencyms = (int)((microtime(true) - $start) * 1000);
-            $this->log_call($endpointkey, $latencyms, $status, $attempt, $profile, 'closed', $method, $host, $path, $requestid);
+            $this->log_call($endpointkey, $latencyms, $status, $attempt, $profile, 'closed', $logctx);
 
             if ($status >= 200 && $status < 300) {
                 $this->breaker_record_success($endpointkey);
@@ -395,31 +442,19 @@ private function request(
             // Attached to the thrown exception's $a context for the caller.
             $lastbody = $this->body_snippet($response);
 
-            if ($status === 404) {
-                if ($method === 'GET' && str_starts_with($path, '/v1/on-demand/')) {
-                    throw new gateway_not_found("{$path} body={$lastbody}");
-                }
-                if ($method === 'DELETE') {
-                    $this->breaker_record_success($endpointkey);
-                    return new \stdClass();
-                }
+            // Idempotent DELETE 404 → empty success object; every other terminal
+            // status throws from here (GET 404 → not_found, non-retryable →
+            // unavailable). null means "retryable — fall through to backoff".
+            $idempotent = $this->handle_unsuccessful($status, $method, $path, $endpointkey, $lastbody);
+            if ($idempotent !== null) {
+                return $idempotent;
             }
 
-            if (!$this->is_retryable($status)) {
-                $this->breaker_record_failure($endpointkey);
-                throw new gateway_unavailable("status_{$status}:{$endpointkey} body={$lastbody}");
-            }
-
-            $delayms = $status === 429
-                ? min(self::RETRY_AFTER_CAP_MS, $this->parse_retry_after($response) * 1000)
-                : self::RETRY_DELAYS_MS[$attempt - 1] + random_int(-self::RETRY_JITTER_MS, self::RETRY_JITTER_MS);
+            $delayms   = $this->retry_delay($status, $response, $attempt);
             $lasterror = "status_{$status}";
-        } catch (gateway_not_found $e) {
-            throw $e;
-        } catch (gateway_unavailable $e) {
-            throw $e;
-        } catch (gateway_invalid_response $e) {
-            // Response_too_large / json_decode_failed — not transient, no retry.
+        } catch (gateway_not_found | gateway_unavailable | gateway_invalid_response $e) {
+            // Terminal: not_found, non-retryable upstream, or undecodable body
+            // (response_too_large / json_decode_failed). Not transient — no retry.
             throw $e;
         } catch (\Throwable $e) {
             $lasterror = 'network_' . (new \ReflectionClass($e))->getShortName();
@@ -431,10 +466,7 @@ private function request(
                 $attempt,
                 $profile,
                 'closed',
-                $method,
-                $host,
-                $path,
-                $requestid,
+                $logctx,
             );
         }
 
@@ -446,6 +478,63 @@ private function request(
     $this->breaker_record_failure($endpointkey);
     $bodytag = $lastbody !== '' ? " body={$lastbody}" : '';
     throw new gateway_unavailable("retries_exhausted:{$lasterror}:{$endpointkey}{$bodytag}");
+}
+
+    /**
+     * Resolve a non-2xx response into a terminal outcome.
+     *
+     * Returns an empty success object only for the idempotent DELETE-404 case.
+     * Throws for every other terminal status (GET 404 → gateway_not_found,
+     * non-retryable status → gateway_unavailable). Returns null when the status
+     * is retryable, signalling the caller to fall through to backoff.
+     *
+     * @param int $status
+     * @param string $method
+     * @param string $path
+     * @param string $endpointkey
+     * @param string $lastbody
+     * @return ?\stdClass
+     */
+private function handle_unsuccessful(
+    int $status,
+    string $method,
+    string $path,
+    string $endpointkey,
+    string $lastbody,
+): ?\stdClass {
+    if ($status === 404) {
+        if ($method === 'GET' && str_starts_with($path, self::ON_DEMAND_PREFIX)) {
+            throw new gateway_not_found("{$path} body={$lastbody}");
+        }
+        if ($method === 'DELETE') {
+            $this->breaker_record_success($endpointkey);
+            return new \stdClass();
+        }
+    }
+
+    if (!$this->is_retryable($status)) {
+        $this->breaker_record_failure($endpointkey);
+        throw new gateway_unavailable("status_{$status}:{$endpointkey} body={$lastbody}");
+    }
+
+    return null;
+}
+
+    /**
+     * Backoff delay (ms) before the next retry of a retryable status.
+     * 429 honours Retry-After (capped); everything else uses the fixed
+     * schedule plus jitter.
+     *
+     * @param int $status
+     * @param mixed $response
+     * @param int $attempt
+     * @return int
+     */
+private function retry_delay(int $status, $response, int $attempt): int {
+    if ($status === 429) {
+        return min(self::RETRY_AFTER_CAP_MS, $this->parse_retry_after($response) * 1000);
+    }
+    return self::RETRY_DELAYS_MS[$attempt - 1] + random_int(-self::RETRY_JITTER_MS, self::RETRY_JITTER_MS);
 }
 
     /**
@@ -642,10 +731,7 @@ private function breaker_record_success(string $key): void {
      * @param int $attempt
      * @param array $profile
      * @param string $circuitstate
-     * @param string $method
-     * @param string $host
-     * @param string $path
-     * @param string $requestid
+     * @param array $context Request-scoped identity: method, host, path, requestid.
      */
 private function log_call(
     string $endpointkey,
@@ -654,23 +740,24 @@ private function log_call(
     int $attempt,
     array $profile,
     string $circuitstate,
-    string $method = '',
-    string $host = '',
-    string $path = '',
-    string $requestid = '',
+    array $context = [],
 ): void {
-    $profilename = $profile === self::PROFILE_HOT
-        ? 'hot'
-        : ($profile === self::PROFILE_HEALTH ? 'health' : 'standard');
+    $profilename = 'standard';
+    if ($profile === self::PROFILE_HOT) {
+        $profilename = 'hot';
+    } else if ($profile === self::PROFILE_HEALTH) {
+        $profilename = 'health';
+    }
 
+    $path = (string)($context['path'] ?? '');
     $pathlogged = $path === '' ? '' : strtok($path, '?');
 
     // phpcs:ignore moodle.PHP.ForbiddenFunctions.FoundWithAlternative
     error_log(json_encode([
         'event'           => 'gateway.call',
-        'request_id'      => $requestid,
-        'method'          => $method,
-        'host'            => $host,
+        'request_id'      => (string)($context['requestid'] ?? ''),
+        'method'          => (string)($context['method'] ?? ''),
+        'host'            => (string)($context['host'] ?? ''),
         'path'            => $pathlogged,
         'endpoint'        => $endpointkey,
         'latency_ms'      => $latencyms,

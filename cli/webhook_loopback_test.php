@@ -40,21 +40,25 @@ define('CLI_SCRIPT', true);
 require_once(__DIR__ . '/../../../config.php');
 require_once($CFG->libdir . '/clilib.php');
 
+// Option keys referenced more than once — named to avoid duplicated literals.
+const OPT_HELP  = 'help';
+const OPT_COUNT = 'count';
+
 [$options, ] = cli_get_params(
     [
-        'help'        => false,
-        'count'       => 1,
+        OPT_HELP      => false,
+        OPT_COUNT     => 1,
         'dup'         => 0.0,
         'webhook-url' => null,
         'timeout'     => 5,
     ],
     [
-        'h' => 'help',
-        'c' => 'count',
+        'h' => OPT_HELP,
+        'c' => OPT_COUNT,
     ],
 );
 
-if ($options['help']) {
+if ($options[OPT_HELP]) {
     cli_writeln(<<<HELP
 Webhook loopback test for local_fastpix.
 
@@ -72,7 +76,7 @@ HELP);
 
 global $DB, $CFG;
 
-$count = max(1, (int)$options['count']);
+$count = max(1, (int)$options[OPT_COUNT]);
 $dup = max(0.0, min(1.0, (float)$options['dup']));
 $timeout = max(1, (int)$options['timeout']);
 $webhookurl = $options['webhook-url']
@@ -97,13 +101,12 @@ if (strlen($secret) < 32) {
 cli_writeln("webhook_loopback_test: target={$webhookurl}");
 cli_writeln("                       count={$count} dup={$dup} timeout={$timeout}s");
 
-$results = [
-    'sent'         => 0,
-    'http_200'     => 0,
-    'http_other'   => [],
-    'unique_ids'   => [],
-    'duplicates'   => 0,
-];
+// Per-run counters (plain locals rather than a keyed bag — no duplicated keys).
+$sent = 0;
+$http200 = 0;
+$httpother = [];
+$uniqueids = 0;
+$duplicates = 0;
 
 // Generate event IDs.
 
@@ -114,7 +117,7 @@ $uniquepool = [];
 for ($i = 0; $i < $count; $i++) {
     if (!empty($uniquepool) && mt_rand(0, 999) / 1000.0 < $dup) {
         $eventids[] = $uniquepool[array_rand($uniquepool)];
-        $results['duplicates']++;
+        $duplicates++;
     } else {
         $id = 'loopback-' . bin2hex(random_bytes(8));
         $eventids[] = $id;
@@ -154,11 +157,11 @@ foreach ($eventids as $eventid) {
     $curlerr = curl_error($ch);
     curl_close($ch);
 
-    $results['sent']++;
+    $sent++;
     if ($httpcode === 200) {
-        $results['http_200']++;
+        $http200++;
     } else {
-        $results['http_other'][] = [
+        $httpother[] = [
             'event_id' => $eventid,
             'code'     => $httpcode,
             'body'     => substr((string)$responsebody, 0, 200),
@@ -167,7 +170,7 @@ foreach ($eventids as $eventid) {
     }
 }
 
-$results['unique_ids'] = count(array_unique($eventids));
+$uniqueids = count(array_unique($eventids));
 
 // Ledger reconciliation.
 
@@ -184,16 +187,16 @@ $ledgercount = $DB->count_records_sql(
 
 cli_writeln('');
 cli_writeln('Results:');
-cli_writeln(sprintf('  sent:              %d', $results['sent']));
-cli_writeln(sprintf('  HTTP 200:          %d', $results['http_200']));
-cli_writeln(sprintf('  unique event IDs:  %d', $results['unique_ids']));
-cli_writeln(sprintf('  duplicates fired:  %d', $results['duplicates']));
+cli_writeln(sprintf('  sent:              %d', $sent));
+cli_writeln(sprintf('  HTTP 200:          %d', $http200));
+cli_writeln(sprintf('  unique event IDs:  %d', $uniqueids));
+cli_writeln(sprintf('  duplicates fired:  %d', $duplicates));
 cli_writeln(sprintf('  ledger rows seen:  %d (expect = unique IDs)', $ledgercount));
 
-if (!empty($results['http_other'])) {
+if (!empty($httpother)) {
     cli_writeln('');
     cli_writeln('Non-200 responses:');
-    foreach (array_slice($results['http_other'], 0, 5) as $row) {
+    foreach (array_slice($httpother, 0, 5) as $row) {
         cli_writeln(sprintf(
             '  event=%s code=%d curl_err=%s body=%s',
             $row['event_id'],
@@ -204,8 +207,8 @@ if (!empty($results['http_other'])) {
     }
 }
 
-$ok = $results['http_200'] === $results['sent']
-    && $ledgercount >= $results['unique_ids'];
+$ok = $http200 === $sent
+    && $ledgercount >= $uniqueids;
 
 cli_writeln('');
 cli_writeln($ok ? 'PASS' : 'FAIL');

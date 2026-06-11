@@ -41,9 +41,11 @@ class rate_limiter_service {
     private static ?self $instance = null;
 
     /**
-     * Constructor.
-     */    private function __construct() {
-}
+     * Private constructor — instantiate via the instance() singleton accessor.
+     */
+    private function __construct() {
+        // Intentionally empty: this is a stateless singleton; all state lives in MUC.
+    }
 
     /**
      * Singleton accessor.
