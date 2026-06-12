@@ -51,14 +51,16 @@ namespace local_fastpix\admin;
  * stored as plaintext in mdl_config_plugins regardless of the widget (rule
  * S8 - documented in README.md), so the visual mask was cosmetic.
  *
+ * The class name is snake_case by Moodle Frankenstyle (rule M2) — the autoloader
+ * maps \local_fastpix\admin\setting_webhook_secret to this file. SonarQube
+ * php:S101 (PascalCase) is a documented false positive (excluded in
+ * sonar-project.properties); see docs/review/SONARQUBE-2026-06-11.md §4.
+ *
  * @package    local_fastpix
  * @copyright  2026 FastPix Inc. <support@fastpix.io>
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-// Class name is snake_case by Moodle Frankenstyle (rule M2) — the autoloader maps
-// \local_fastpix\admin\setting_webhook_secret to this file. SonarQube php:S101
-// (PascalCase) is a documented false positive; see docs/review/SONARQUBE-2026-06-11.md §4.
-class setting_webhook_secret extends \admin_setting_configtext { // NOSONAR
+class setting_webhook_secret extends \admin_setting_configtext {
     /**
      * Minimum acceptable length, mirroring verifier::MIN_SECRET_BYTES.
      */    private const MIN_LEN = 32;

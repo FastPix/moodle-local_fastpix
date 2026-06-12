@@ -74,7 +74,7 @@ if (!has_capability('local/fastpix:configurecredentials', context_system::instan
 // Parameters: $buttonid, $statusid, $labelkey, $descriptionkey,.
 // $methodname, $successtpl, $successfield. Returns the rendered HTML.
 $localfastpixbuttonhtml = static function (array $btn): string {
-    // $btn keys: buttonid, statusid, labelkey, descriptionkey, methodname,
+    // Keys in $btn: buttonid, statusid, labelkey, descriptionkey, methodname,
     // successtpl, successfield, and optional iconsvg.
     $buttonid       = $btn['buttonid'];
     $statusid       = $btn['statusid'];

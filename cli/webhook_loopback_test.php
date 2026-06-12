@@ -40,8 +40,9 @@ define('CLI_SCRIPT', true);
 require_once(__DIR__ . '/../../../config.php');
 require_once($CFG->libdir . '/clilib.php');
 
-// Option keys referenced more than once — named to avoid duplicated literals.
+/** Option key for the --help flag (named to avoid duplicated literals). */
 const OPT_HELP  = 'help';
+/** Option key for the --count flag (named to avoid duplicated literals). */
 const OPT_COUNT = 'count';
 
 [$options, ] = cli_get_params(

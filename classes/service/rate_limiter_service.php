@@ -52,9 +52,9 @@ class rate_limiter_service {
      *
      * @return self
      */
-public static function instance(): self {
-    return self::$instance ??= new self();
-}
+    public static function instance(): self {
+        return self::$instance ??= new self();
+    }
 
     /**
      * Reset the singleton (used by tests).
