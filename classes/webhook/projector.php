@@ -427,8 +427,8 @@ class projector {
      * @return ?float
      */
     private function parse_duration($value): ?float {
-        // is_numeric() is false for null and '', so the missing-value case
-        // falls through to the trailing null return — no separate guard needed.
+        // The is_numeric() check is false for null and '', so the missing-value
+        // case falls through to the trailing null return — no separate guard needed.
         if (is_numeric($value)) {
             return (float)$value;
         }

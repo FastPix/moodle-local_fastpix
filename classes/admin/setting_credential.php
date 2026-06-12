@@ -37,11 +37,12 @@ namespace local_fastpix\admin;
 /**
  * Admin text setting that triggers signing-key rotation when its value changes.
  *
- * Class name is snake_case by Moodle Frankenstyle (rule M2) — the autoloader maps
- * \local_fastpix\admin\setting_credential to this file. SonarQube php:S101 (PascalCase)
- * is a documented false positive; see docs/review/SONARQUBE-2026-06-11.md §4.
+ * The class name is snake_case by Moodle Frankenstyle (rule M2) — the autoloader
+ * maps \local_fastpix\admin\setting_credential to this file. SonarQube php:S101
+ * (PascalCase) is a documented false positive (excluded in
+ * sonar-project.properties); see docs/review/SONARQUBE-2026-06-11.md §4.
  */
-class setting_credential extends \admin_setting_configtext { // NOSONAR
+class setting_credential extends \admin_setting_configtext {
     /** @var bool Module-scoped guard: rotation shutdown fn registered once per request. */
     private static bool $rotationscheduled = false;
 
@@ -79,10 +80,12 @@ class setting_credential extends \admin_setting_configtext { // NOSONAR
      * ensure_signing_key(). The flag set above forces ensure_signing_key()
      * down its "rotate path" — wipes stale key state, mints fresh under
      * the new credentials, registers the public key with FastPix.
+     *
+     * The method name is snake_case by Moodle Frankenstyle (rule M2); SonarQube
+     * php:S100 (camelCase) is a documented false positive (excluded in
+     * sonar-project.properties). See docs/review/SONARQUBE-2026-06-11.md §4.
      */
-    // Method name is snake_case by Moodle Frankenstyle (rule M2); SonarQube php:S100
-    // (camelCase) is a documented false positive. See docs/review/SONARQUBE-2026-06-11.md §4.
-    private function schedule_synchronous_rotation(): void { // NOSONAR
+    private function schedule_synchronous_rotation(): void {
         if (self::$rotationscheduled) {
             return;
         }
