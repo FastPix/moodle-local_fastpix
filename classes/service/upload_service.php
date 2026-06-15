@@ -100,6 +100,7 @@ class upload_service {
      * @param bool $drmrequired
      * @param ?string $accesspolicy
      * @param ?string $maxresolution
+     * @param int $courseid
      * @return \stdClass
      */
 public function create_file_upload_session(
@@ -159,6 +160,7 @@ public function create_file_upload_session(
      * @param bool $drmrequired
      * @param ?string $accesspolicy
      * @param ?string $maxresolution
+     * @param int $courseid
      * @return \stdClass
      */
 public function create_url_pull_session(
@@ -221,6 +223,7 @@ public function create_url_pull_session(
      * @param string $accesspolicy "public" | "private" | "drm"
      * @param string $captionsmode "none" | "auto" | "vtt"
      * @param ?string $languagecode Required (and validated) when captionsmode = "auto".
+     * @param int $courseid
      * @return \stdClass {session_id, upload_id, upload_url, expires_at}
      * @throws \invalid_parameter_exception on bad policy/captions/language.
      * @throws drm_not_configured when policy is self::POLICY_DRM but DRM is not configured.

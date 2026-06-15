@@ -380,6 +380,7 @@ public function health_probe(): bool {
      * @param ?array $body
      * @param array $profile
      * @param ?string $idempotencykey
+     * @param array $extraheaders
      * @return \stdClass
      */
 private function request(
@@ -612,6 +613,7 @@ private function decode_body($response): \stdClass {
      *
      * @param ?string $idempotencykey
      * @param ?string $requestid
+     * @param array $extraheaders
      * @return array
      */
 private function build_headers(?string $idempotencykey, ?string $requestid = null, array $extraheaders = []): array {
