@@ -179,4 +179,21 @@ public function test_resolve_sets_drm_required_when_asset_is_drm(): void {
     $this->assertSame('drm:' . $asset->playback_id, $claims['aud']);
     $this->assertSame($payload->playbacktoken, $payload->drmtoken);
 }
+
+/**
+ * player_lib_url() returns the locally-served, wwwroot-prefixed player URL with
+ * a version cache-bust — never a CDN reference (ADR-017).
+ */
+public function test_player_lib_url_is_local_and_versioned(): void {
+    global $CFG;
+    $url = playback_service::player_lib_url();
+
+    $this->assertStringStartsWith(
+        $CFG->wwwroot . '/local/fastpix/thirdparty/fp-player/player.esm.js',
+        $url
+    );
+    $this->assertStringContainsString('ver=' . playback_service::PLAYER_LIB_VERSION, $url);
+    // The whole point of ADR-017: no CDN load.
+    $this->assertStringNotContainsString('cdn.jsdelivr.net', $url);
+}
 }

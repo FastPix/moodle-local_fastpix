@@ -19,8 +19,12 @@ Thumbs.db
 phpunit.cache/
 tests/coverage/
 
-# Build artifacts (also export-ignored in .gitattributes)
+# Build artifacts (also export-ignored in .gitattributes). EXCEPTION: amd/build/
+# holds the compiled AMD modules Moodle serves at runtime — it must be committed
+# and shipped in the release archive, so it is re-included below.
 build/
+!amd/build/
+!amd/build/**
 node_modules/
 
 # Runtime / logs

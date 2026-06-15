@@ -43,6 +43,35 @@ use local_fastpix\exception\asset_not_ready;
  */
 class playback_service {
     /**
+     * Vendored FastPix web player version (thirdparty/fp-player). Doubles as the
+     * cache-bust query string on player_lib_url(). Bump on a player re-vendor —
+     * see thirdparty/fp-player/VENDOR.md and ADR-017.
+     *
+     * @var string
+     */
+    public const PLAYER_LIB_VERSION = '1.0.17';
+
+    /**
+     * Absolute URL of the locally-served FastPix web player ESM (ADR-017).
+     *
+     * Consumed surface (CC7): mod_fastpix and filter_fastpix import this URL via
+     * native dynamic import() to define the <fastpix-player> custom element,
+     * replacing any CDN reference so no JavaScript is fetched from a CDN at
+     * runtime. tinymce_fastpix does not consume it (it emits a shortcode, never a
+     * player). Consumers MUST keep pre-setting window.Hls (from their own
+     * vendored hls.js) before the import so the player's built-in CDN hls
+     * fallback stays dormant. The ?ver query busts the module cache on a version
+     * bump without renaming the file.
+     *
+     * @return string wwwroot-prefixed absolute URL of player.esm.js.
+     */
+    public static function player_lib_url(): string {
+        global $CFG;
+        return $CFG->wwwroot . '/local/fastpix/thirdparty/fp-player/player.esm.js?ver='
+            . self::PLAYER_LIB_VERSION;
+    }
+
+    /**
      * Resolve a playback payload for a known, ready, non-deleted asset.
      * The caller is trusted (mod_fastpix has already done require_login,
      * capability check, and activity-context verification). $userid is

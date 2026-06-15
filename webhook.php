@@ -50,7 +50,17 @@ if ($rawbody === false) {
     die();
 }
 
-// 2a. FastPix validation ping. When the admin configures the webhook URL.
+// 3. Per-IP rate limit (fail-open on cache failure inside the limiter). Runs
+// BEFORE the validation-ping handling below so a flood of ping-shaped bodies
+// cannot fill the log (the ping path calls error_log) before the limiter
+// engages.
+$ip = getremoteaddr() ?: 'unknown';
+if (!\local_fastpix\service\rate_limiter_service::instance()->allow($ip)) {
+    http_response_code(429);
+    die();
+}
+
+// 4. FastPix validation ping. When the admin configures the webhook URL.
 // In FastPix's dashboard, FastPix POSTs a probe to verify reachability.
 // Historically the probe was empty or '{}'. As of 2026, the dashboard.
 // May also send a small signed JSON body that lacks the id/type fields.
@@ -89,14 +99,7 @@ if ($isping) {
     die();
 }
 
-// 3. Per-IP rate limit (fail-open on cache failure inside the limiter).
-$ip = getremoteaddr() ?: 'unknown';
-if (!\local_fastpix\service\rate_limiter_service::instance()->allow($ip)) {
-    http_response_code(429);
-    die();
-}
-
-// 4. Delegate to the processor.
+// 5. Delegate to the processor.
 $signature = $_SERVER['HTTP_FASTPIX_SIGNATURE'] ?? '';
 $result = \local_fastpix\webhook\processor::process($rawbody, $signature);
 

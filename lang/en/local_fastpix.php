@@ -39,6 +39,8 @@ $string['drm_not_configured'] = 'DRM is not configured: {$a}';
 $string['ssrf_blocked'] = 'URL rejected by SSRF guard: {$a}';
 $string['rate_limit_exceeded'] = 'Rate limit exceeded: {$a}';
 $string['credentials_missing'] = 'FastPix credentials are not configured: {$a}';
+$string['upload_module_required'] = 'FastPix uploads require the FastPix activity module to be installed. Ask your site administrator to install it.';
+$string['default_asset_title'] = 'Asset {$a}';
 
 // Capability labels.
 $string['fastpix:configurecredentials'] = 'Configure FastPix API credentials';
@@ -99,6 +101,8 @@ $string['privacy:metadata:webhook_event:received_at']      = 'When the event was
 $string['privacy:metadata:fastpix']                     = 'FastPix.io — external video hosting service';
 $string['privacy:metadata:fastpix:owner_userhash']      = 'An HMAC-derived hash of the user ID (no plaintext PII sent)';
 $string['privacy:metadata:fastpix:site_url']            = 'The Moodle site URL (used for cross-asset audit)';
+$string['privacy:metadata:fastpix:video_title']         = 'The title given to an uploaded video (sent so it appears in the FastPix dashboard)';
+$string['privacy:metadata:fastpix:source_url']          = 'For URL-based uploads, the source video URL that FastPix fetches the media from';
 // V1.0 cleanup — new strings.
 $string['task_purge_soft_deleted_assets'] = 'Hard-purge soft-deleted assets after 7 days';
 $string['event_webhook_secret_rotated']   = 'Webhook signing secret rotated';
@@ -152,6 +156,7 @@ $string['button_send_test_event']      = 'Send test event';
 $string['button_send_test_event_desc'] = 'Sends a test webhook event to verify that Moodle can receive and process FastPix events correctly.';
 $string['settings_save_first_notice'] = 'Save your changes before using <strong>Test connection</strong> or <strong>Send test event</strong>. Those buttons use the saved settings — not the values currently typed into the fields above.';
 
+$string['test_connection_probe_failed'] = 'No successful response from FastPix — check the API credentials and that the FastPix API is reachable.';
 $string['test_connection_running'] = 'Probing…';
 $string['test_connection_success'] = 'Connected (latency {$a} ms)';
 $string['test_connection_failed']  = 'Failed: {$a}';
@@ -167,3 +172,12 @@ $string['access_policy_drm']     = 'requires DRM configuration and authorized pl
 
 // Settings.php — rotation status display.
 $string['setting_webhook_secret_rotated_at'] = 'Last secret rotation';
+
+// Cache definitions (db/caches.php) — shown on the admin "Cache configuration"
+// page. Without these the page renders raw [[cachedef_*]] placeholders.
+$string['cachedef_asset'] = 'FastPix asset metadata';
+$string['cachedef_rate_limit'] = 'Webhook per-IP rate limiter counters';
+$string['cachedef_circuit_breaker'] = 'FastPix gateway circuit-breaker state';
+$string['cachedef_upload_dedup'] = 'Upload-session de-duplication window';
+$string['cachedef_seen_heartbeat'] = 'Asset last-seen usage heartbeat';
+$string['cachedef_health'] = 'Public health-endpoint probe result (short-lived)';

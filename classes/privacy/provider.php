@@ -105,6 +105,8 @@ class provider implements
             [
                 'moodle_owner_userhash' => 'privacy:metadata:fastpix:owner_userhash',
                 'moodle_site_url'       => 'privacy:metadata:fastpix:site_url',
+                'video_title'           => 'privacy:metadata:fastpix:video_title',
+                'source_url'            => 'privacy:metadata:fastpix:source_url',
             ],
             'privacy:metadata:fastpix',
         );
@@ -119,8 +121,15 @@ class provider implements
      * @return contextlist
      */
     public static function get_contexts_for_userid(int $userid): contextlist {
+        global $DB;
         $contextlist = new contextlist();
-        $contextlist->add_system_context();
+        // Only claim the system context when this user actually owns FastPix
+        // data; otherwise the privacy report would assert data for every user.
+        $hasdata = $DB->record_exists(self::TABLE_ASSET, ['owner_userid' => $userid])
+            || $DB->record_exists(self::TABLE_UPLOAD_SESSION, ['userid' => $userid]);
+        if ($hasdata) {
+            $contextlist->add_system_context();
+        }
         return $contextlist;
     }
 

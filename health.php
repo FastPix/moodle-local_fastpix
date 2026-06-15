@@ -22,8 +22,9 @@
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 // Public health endpoint for local_fastpix. HMAC-free (read-only liveness.
-// Probe), rate-limited at 30 req/min/IP. Wraps gateway::health_probe().
-// And emits a small JSON body. Never 500s.
+// Probe), rate-limited at 30 req/min/IP, and the probe result is cached for a.
+// Short TTL so anonymous traffic cannot amplify into one FastPix call per hit.
+// Wraps gateway::health_probe() and emits a small JSON body. Never 500s.
 
 define('NO_DEBUG_DISPLAY', true);
 define('NO_MOODLE_COOKIES', true);

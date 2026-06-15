@@ -70,6 +70,13 @@ webhook endpoint, and a health probe.
 - PHP 8.1 or later (tested through PHP 8.3).
 - A FastPix account with API credentials and a webhook signing secret.
   [Sign up](https://dashboard.fastpix.com/signup) if you don't have one.
+- The FastPix activity module (`mod_fastpix`) for the **upload** features.
+  `local_fastpix` provides the upload web services but authorises them with
+  `mod/fastpix:uploadmedia`, a capability owned by `mod_fastpix`. When that
+  module is not installed, the upload endpoints fail with a clear
+  "activity module required" message rather than silently breaking; playback,
+  retention and cleanup do not require it. This deliberate cross-plugin
+  capability ownership is recorded in `docs/adr/`.
 - A shared Moodle Universal Cache (MUC) backend such as Redis,
   Memcached, or  on a single-server install with one PHP-FPM pool 
   the file store. The gateway circuit breaker and rate limiter rely on

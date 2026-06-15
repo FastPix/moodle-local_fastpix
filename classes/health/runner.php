@@ -55,9 +55,26 @@ class runner {
                 return self::response(429, 'rate_limited', null, 0);
             }
 
+            // Serve a recently-cached probe result if one is fresh (TTL is on the
+            // 'health' cache definition). This is a public, unauthenticated
+            // endpoint; caching bounds it to ~one outbound FastPix probe per TTL
+            // window across ALL callers, so it cannot be used to amplify load
+            // onto FastPix regardless of how many IPs hit it.
+            $cache = \cache::make('local_fastpix', 'health');
+            $cached = $cache->get('probe');
+            if (is_array($cached) && array_key_exists('reachable', $cached)) {
+                return self::response(
+                    $cached['reachable'] ? 200 : 503,
+                    $cached['reachable'] ? 'ok' : 'degraded',
+                    $cached['reachable'],
+                    (int)$cached['latency_ms'],
+                );
+            }
+
             $start = microtime(true);
             $reachable = \local_fastpix\api\gateway::instance()->health_probe();
             $latencyms = (int)((microtime(true) - $start) * 1000);
+            $cache->set('probe', ['reachable' => $reachable, 'latency_ms' => $latencyms]);
 
             return self::response(
                 $reachable ? 200 : 503,
