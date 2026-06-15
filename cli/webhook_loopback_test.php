@@ -116,7 +116,7 @@ $duplicates = 0;
 $eventids = [];
 $uniquepool = [];
 for ($i = 0; $i < $count; $i++) {
-    if (!empty($uniquepool) && mt_rand(0, 999) / 1000.0 < $dup) {
+    if (!empty($uniquepool) && random_int(0, 999) / 1000.0 < $dup) {
         $eventids[] = $uniquepool[array_rand($uniquepool)];
         $duplicates++;
     } else {
@@ -130,6 +130,11 @@ for ($i = 0; $i < $count; $i++) {
 
 $fastpixid = 'loopback-asset-' . bin2hex(random_bytes(6));
 
+// Moodle's HTTP client (Guzzle wrapper) — rule M8: never curl_* directly. This
+// is a local loopback to our own webhook.php, not a FastPix call, so A2 (FastPix
+// HTTP belongs in classes/api/gateway.php) does not apply.
+$client = new \core\http_client(['timeout' => $timeout]);
+
 foreach ($eventids as $eventid) {
     $payload = json_encode([
         'id'         => $eventid,
@@ -141,22 +146,23 @@ foreach ($eventids as $eventid) {
 
     $signature = hash_hmac('sha256', $payload, $secret);
 
-    $ch = curl_init($webhookurl);
-    curl_setopt_array($ch, [
-        CURLOPT_POST           => true,
-        CURLOPT_POSTFIELDS     => $payload,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => $timeout,
-        CURLOPT_HTTPHEADER     => [
-            'Content-Type: application/json',
-            'FastPix-Signature: ' . $signature,
-            'Content-Length: ' . strlen($payload),
-        ],
-    ]);
-    $responsebody = curl_exec($ch);
-    $httpcode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $curlerr = curl_error($ch);
-    curl_close($ch);
+    try {
+        $response = $client->post($webhookurl, [
+            'headers' => [
+                'Content-Type'      => 'application/json',
+                'FastPix-Signature' => $signature,
+            ],
+            'body'        => $payload,
+            'http_errors' => false,
+        ]);
+        $httpcode = (int)$response->getStatusCode();
+        $responsebody = (string)$response->getBody();
+        $httperr = '';
+    } catch (\Throwable $e) {
+        $httpcode = 0;
+        $responsebody = '';
+        $httperr = $e->getMessage();
+    }
 
     $sent++;
     if ($httpcode === 200) {
@@ -166,7 +172,7 @@ foreach ($eventids as $eventid) {
             'event_id' => $eventid,
             'code'     => $httpcode,
             'body'     => substr((string)$responsebody, 0, 200),
-            'curl_err' => $curlerr,
+            'http_err' => $httperr,
         ];
     }
 }
@@ -199,10 +205,10 @@ if (!empty($httpother)) {
     cli_writeln('Non-200 responses:');
     foreach (array_slice($httpother, 0, 5) as $row) {
         cli_writeln(sprintf(
-            '  event=%s code=%d curl_err=%s body=%s',
+            '  event=%s code=%d http_err=%s body=%s',
             $row['event_id'],
             $row['code'],
-            $row['curl_err'] ?: '-',
+            $row['http_err'] ?: '-',
             $row['body'] ?: '-',
         ));
     }

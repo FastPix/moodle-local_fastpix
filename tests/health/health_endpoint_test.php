@@ -34,6 +34,7 @@ final class health_endpoint_test extends \advanced_testcase {
         \local_fastpix\api\gateway::reset();
         \local_fastpix\service\rate_limiter_service::reset();
         \cache::make('local_fastpix', 'rate_limit')->purge();
+        \cache::make('local_fastpix', 'health')->purge();
     }
 
     public function tearDown(): void {
@@ -154,5 +155,28 @@ final class health_endpoint_test extends \advanced_testcase {
             ['status', 'fastpix_reachable', 'latency_ms', 'timestamp'],
             array_keys($body),
         );
+    }
+
+    /**
+     * The probe result is cached: repeated hits within the TTL window must NOT
+     * call the gateway again, so an unauthenticated flood cannot amplify into
+     * one outbound FastPix probe per request.
+     *
+     * @covers \local_fastpix\health\runner
+     */
+    public function test_probe_result_is_cached_across_calls(): void {
+        $mock = $this->createMock(\local_fastpix\api\gateway::class);
+        // Expect EXACTLY one probe despite several requests below.
+        $mock->expects($this->once())->method('health_probe')->willReturn(true);
+        $this->inject_gateway_mock($mock);
+
+        $first = runner::run('9.9.9.9');
+        $second = runner::run('8.8.8.8'); // Different IP — still served from cache.
+        $third = runner::run('7.7.7.7');
+
+        $this->assertSame(200, $first['http_code']);
+        $this->assertSame(200, $second['http_code']);
+        $this->assertSame(200, $third['http_code']);
+        $this->assertTrue($third['body']['fastpix_reachable']);
     }
 }

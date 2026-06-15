@@ -4,6 +4,10 @@
 .gitattributes   export-ignore
 .gitignore       export-ignore
 build/           export-ignore
+# amd/build/ is NOT a throwaway artifact: Moodle serves the compiled AMD modules
+# from it at runtime, so it must remain in the release archive.
+amd/build/       -export-ignore
+amd/build/**     -export-ignore
 docs/            export-ignore
 phpunit.xml      export-ignore
 tests/           export-ignore

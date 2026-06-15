@@ -8,4 +8,11 @@
         <licenseversion>3</licenseversion>
         <version>v6.10.0</version>
     </library>
+    <library>
+        <location>thirdparty/fp-player</location>
+        <name>@fastpix/fp-player</name>
+        <description>FastPix web player (ESM). Defines the &lt;fastpix-player&gt; custom element; loaded via native dynamic import() on playback. Served locally so no JavaScript is fetched from a CDN at runtime (ADR-017).</description>
+        <license>MIT</license>
+        <version>1.0.17</version>
+    </library>
 </libraries>

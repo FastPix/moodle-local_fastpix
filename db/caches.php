@@ -62,4 +62,14 @@ $definitions = [
         'simpledata' => true,
         'ttl'        => 3600,
     ],
+    // Short-lived cache of the public health endpoint's probe result. The
+    // endpoint is unauthenticated; caching bounds it to roughly one outbound
+    // FastPix probe per TTL window regardless of how many anonymous callers
+    // (or IPs) hit it, so it cannot be used to amplify load onto FastPix.
+    'health' => [
+        'mode'       => cache_store::MODE_APPLICATION,
+        'simplekeys' => true,
+        'simpledata' => true,
+        'ttl'        => 30,
+    ],
 ];

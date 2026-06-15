@@ -10,6 +10,18 @@ jobs:
     runs-on: ubuntu-22.04
 
     services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: 'postgres'
+          POSTGRES_HOST_AUTH_METHOD: 'trust'
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd=pg_isready
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
       mariadb:
         image: mariadb:10.11
         env:
@@ -30,7 +42,7 @@ jobs:
       matrix:
         php: ['8.1', '8.2', '8.3']
         moodle-branch: ['MOODLE_405_STABLE']
-        database: ['mariadb']
+        database: ['mariadb', 'pgsql']
 
     steps:
       - name: Check out plugin
@@ -45,6 +57,12 @@ jobs:
           extensions: mbstring, pgsql, mysqli, gd, zip, soap, intl, xmlrpc
           ini-values: max_input_vars=5000
           coverage: pcov
+
+      # Moodle 4.5's Grunt toolchain requires Node 22; needed for the grunt step.
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
 
       - name: Initialise moodle-plugin-ci
         run: |
@@ -76,6 +94,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: moodle-plugin-ci codechecker --max-warnings 0
 
+      - name: Moodle PHPDoc checker
+        if: ${{ !cancelled() }}
+        run: moodle-plugin-ci phpdoc
+
       - name: Validate plugin
         if: ${{ !cancelled() }}
         run: moodle-plugin-ci validate
@@ -88,11 +110,17 @@ jobs:
         if: ${{ !cancelled() }}
         run: moodle-plugin-ci mustache
 
+      # Rebuilds amd/src -> amd/build (and styles) and fails if the committed
+      # build artifacts differ. Guards the JavaScript shipped to browsers.
+      - name: Grunt (rebuild AMD/CSS and check for diffs)
+        if: ${{ !cancelled() }}
+        run: moodle-plugin-ci grunt
+
       - name: PHPUnit
         if: ${{ !cancelled() }}
         run: moodle-plugin-ci phpunit --fail-on-warning
 
       - name: Coverage gate
-        if: ${{ !cancelled() && matrix.php == '8.3' }}
+        if: ${{ !cancelled() && matrix.php == '8.3' && matrix.database == 'mariadb' }}
         working-directory: plugin
         run: bash tools/coverage.sh

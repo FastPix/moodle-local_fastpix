@@ -56,18 +56,34 @@ if (!$opts['include-test-fixtures']) {
 $assets = $DB->get_records_select('local_fastpix_asset', $where, $params);
 cli_writeln("candidates: " . count($assets) . ($opts['apply'] ? ' (apply)' : ' (dry-run)'));
 
+// Preload every playbackIds-bearing ledger row ONCE rather than querying per
+// asset inside the loop (avoids an N+1 — see DML performance guidance). Ordered
+// by received_at ASC so the first in-memory match per asset is the earliest,
+// preserving the prior "ORDER BY received_at ASC LIMIT 1" semantics. This is a
+// bounded, one-time legacy backfill (webhook events are pruned at 90 days, W9),
+// so the in-memory set is small.
+$ledgerrows = $DB->get_records_sql(
+    "SELECT id, event_type, provider_event_id, payload, received_at
+       FROM {local_fastpix_webhook_event}
+      WHERE payload LIKE :needle
+      ORDER BY received_at ASC",
+    ['needle' => '%playbackIds%']
+);
+
 $repaired = 0;
 $skipped  = 0;
 foreach ($assets as $asset) {
-    $needle = '%' . $DB->sql_like_escape($asset->fastpix_id) . '%playbackIds%';
-    $eventrow = $DB->get_record_sql(
-        "SELECT id, event_type, provider_event_id
-           FROM {local_fastpix_webhook_event}
-          WHERE payload LIKE :needle
-          ORDER BY received_at ASC
-          LIMIT 1",
-        ['needle' => $needle]
-    );
+    // Find the earliest ledger row whose payload mentions this asset id BEFORE
+    // its playbackIds (mirrors the old '%<id>%playbackIds%' LIKE, order-aware).
+    $eventrow = null;
+    foreach ($ledgerrows as $row) {
+        $payload = (string)$row->payload;
+        $idpos = strpos($payload, (string)$asset->fastpix_id);
+        if ($idpos !== false && strpos($payload, 'playbackIds', $idpos) !== false) {
+            $eventrow = $row;
+            break;
+        }
+    }
     if (!$eventrow || empty($eventrow->provider_event_id)) {
         cli_writeln("  skip {$asset->fastpix_id} (no playbackIds-bearing ledger row)");
         $skipped++;

@@ -28,5 +28,11 @@ is licensed under the BSD-3-Clause license. See
 classes/vendor/php-jwt/VENDOR.md for version, source URL, and SHA256
 attestation.
 
-The BSD-3-Clause license is compatible with the GPLv3 under which this
-plugin is distributed.
+This plugin also vendors @fastpix/fp-player (the FastPix web player, served
+locally — see docs/adr/ADR-017) under thirdparty/fp-player/ which is licensed
+under the MIT license. See thirdparty/fp-player/LICENSE for the full text and
+thirdparty/fp-player/VENDOR.md for version, source URL, and SHA256 attestation.
+
+Both the BSD-3-Clause and MIT licenses are compatible with the GPLv3 under
+which this plugin is distributed. All vendored libraries are declared in
+thirdpartylibs.xml.

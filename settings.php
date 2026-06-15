@@ -38,10 +38,11 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-// This settings page embeds its admin UI as inline CSS, JS and SVG icons (the
-// $fpcardstyle / $fpcardscript heredocs and the icon/logo strings below). Those
-// lines legitimately exceed the 132/180-char limits and cannot be wrapped
-// without breaking the CSS/JS, so the line-length sniff is disabled file-wide.
+// This settings page embeds inline SVG icon/logo strings (handed to the AMD
+// enhancer as config and rendered through html_writer). Those lines legitimately
+// exceed the 132/180-char limits and cannot be wrapped without corrupting the
+// SVG markup, so the line-length sniff is disabled file-wide. The admin UI's CSS
+// and JS now live in styles.css and amd/src/settings.js respectively.
 // phpcs:disable moodle.Files.LineLength.MaxExceeded, moodle.Files.LineLength.TooLong
 
 if (!$hassiteconfig) {
@@ -61,28 +62,19 @@ if (!$ADMIN->fulltree) {
 if (!has_capability('local/fastpix:configurecredentials', context_system::instance())) {
     return;
 }
-// Helper — emit an admin_setting_description that renders a button + a.
-// Status span + a muted descriptor. Centralizes the markup so the two.
-// Admin buttons (Test connection, Send test event) stay byte-identical.
-
-// Build the HTML for an inline admin button + status pair + an inline.
-// Script tag that wires a click handler. Uses native fetch() against.
-// /Lib/ajax/service.php (the same endpoint Moodle's core/ajax AMD module.
-// Uses) so we don't depend on the AMD loader — which has been unreliable.
-// Enough on this dev stack to break sibling admin widgets.
+// Helper — emit an admin_setting_description that renders a button + a status
+// span + a muted descriptor. Centralizes the markup so the two admin buttons
+// (Test connection, Send test event) stay byte-identical. The click handler is
+// wired by the local_fastpix/settings AMD module (loaded at the foot of this
+// file); the AJAX call itself runs through core/ajax. No inline <script>.
 //
-// Parameters: $buttonid, $statusid, $labelkey, $descriptionkey,.
-// $methodname, $successtpl, $successfield. Returns the rendered HTML.
+// Parameters: $buttonid, $statusid, $labelkey, $descriptionkey, and optional
+// $iconsvg. Returns the rendered HTML.
 $localfastpixbuttonhtml = static function (array $btn): string {
-    // Keys in $btn: buttonid, statusid, labelkey, descriptionkey, methodname,
-    // successtpl, successfield, and optional iconsvg.
     $buttonid       = $btn['buttonid'];
     $statusid       = $btn['statusid'];
     $labelkey       = $btn['labelkey'];
     $descriptionkey = $btn['descriptionkey'];
-    $methodname     = $btn['methodname'];
-    $successtpl     = $btn['successtpl'];
-    $successfield   = $btn['successfield'];
     $iconsvg        = $btn['iconsvg'] ?? '';
 
     // Outlined .fp-ibtn (icon + label), matching the card's Copy buttons.
@@ -106,77 +98,14 @@ $localfastpixbuttonhtml = static function (array $btn): string {
         ['class' => 'form-text text-muted'],
     );
 
-    // Inline <script> binding. Reads sesskey from M.cfg.sesskey (always.
-    // Available on admin pages). All JSON encoding via PHP-side.
-    // Json_encode so we don't smuggle user input into JS.
-    $args = [
-        'buttonId'     => $buttonid,
-        'statusId'     => $statusid,
-        'methodname'   => $methodname,
-        'successTpl'   => $successtpl,
-        'successField' => $successfield,
-    ];
-    $argsjson = json_encode($args, JSON_HEX_TAG | JSON_HEX_QUOT | JSON_HEX_AMP);
-    $script = <<<SCRIPT
-<script>
-(function() {
-    var cfg = {$argsjson};
-    function bind() {
-        var btn = document.getElementById(cfg.buttonId);
-        var status = document.getElementById(cfg.statusId);
-        if (!btn || !status || btn.dataset.fpBound === '1') return;
-        btn.dataset.fpBound = '1';
-        btn.addEventListener('click', function() {
-            function setState(cls, text) {
-                status.classList.remove('fp-status-busy', 'fp-status-ok', 'fp-status-err');
-                if (cls) { status.classList.add(cls); }
-                status.textContent = text;
-            }
-            function ok(text) { setState('fp-status-ok', '✓ ' + text); }
-            function fail(text) { setState('fp-status-err', '✕ ' + text); }
-            setState('fp-status-busy', 'Working…');
-            btn.disabled = true;
-            var payload = [{index: 0, methodname: cfg.methodname, args: {}}];
-            var sesskey = (window.M && window.M.cfg && window.M.cfg.sesskey) || '';
-            var url = M.cfg.wwwroot + '/lib/ajax/service.php?sesskey=' + encodeURIComponent(sesskey)
-                    + '&info=' + encodeURIComponent(cfg.methodname);
-            fetch(url, {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(payload)
-            }).then(function(r) { return r.json(); })
-              .then(function(rs) {
-                  btn.disabled = false;
-                  var r = rs && rs[0];
-                  if (r && r.error) {
-                      fail(r.exception ? r.exception.message : r.error);
-                      return;
-                  }
-                  var data = r && r.data;
-                  if (data && data.success) {
-                      ok(cfg.successTpl.replace('{\$a}', String(data[cfg.successField])));
-                  } else {
-                      var msg = (data && (data.error || (data.errors && data.errors.join(', ')) || data.result)) || 'unknown';
-                      fail(msg);
-                  }
-              }).catch(function(err) {
-                  btn.disabled = false;
-                  fail((err && err.message) || err);
-              });
-        });
-    }
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', bind);
-    } else {
-        bind();
-    }
-})();
-</script>
-SCRIPT;
-
-    return $button . ' ' . $status . $description . $script;
+    return $button . ' ' . $status . $description;
 };
+
+// JS config for the AJAX action buttons, accumulated as each button is added
+// and handed to the AMD enhancer at the foot of this file. Success/failure
+// strings carry {$a} and are resolved JS-side (by string key) to keep them in
+// the language pack (rule M4).
+$localfastpixjsbuttons = [];
 
 // 1. API credentials.
 //
@@ -201,27 +130,24 @@ $settings->add(new admin_setting_heading(
     $credentialsdesc,
 ));
 
+// setting_credential extends admin_setting_configpasswordunmask, so both the
+// API key and secret render masked (browser dots + opt-in reveal) and the value
+// is redacted in the admin config-change log. Storage remains plaintext in
+// mdl_config_plugins (rule S8, disclosed in README.md). The card enhancer leaves
+// these two fields alone (they are intentionally NOT in CFG.secrets below) so
+// the native passwordunmask widget owns the mask/reveal affordance.
 $settings->add(new \local_fastpix\admin\setting_credential(
     'local_fastpix/apikey',
     new lang_string('setting_apikey', 'local_fastpix'),
     new lang_string('setting_apikey_desc', 'local_fastpix'),
     '',
-    PARAM_RAW_TRIMMED,
 ));
 
-// Plain text input instead of admin_setting_configpasswordunmask. The.
-// Passwordunmask widget depends on the core_admin/show_unmask_password.
-// AMD module to bind its "click to edit" affordance; in our dev stack.
-// That JS chain is intermittently broken, leaving the field inert.
-// The secret is stored as plaintext in mdl_config_plugins regardless.
-// Of the widget (rule S8 — already disclosed in README.md), so the.
-// Visual mask was cosmetic. The text input is always editable.
 $settings->add(new \local_fastpix\admin\setting_credential(
     'local_fastpix/apisecret',
     new lang_string('setting_apisecret', 'local_fastpix'),
     new lang_string('setting_apisecret_desc', 'local_fastpix'),
     '',
-    PARAM_RAW_TRIMMED,
 ));
 
 $btntestconnectionid = 'local_fastpix_test_connection_btn';
@@ -234,12 +160,18 @@ $settings->add(new admin_setting_description(
         'statusid'       => $btntestconnectionstatusid,
         'labelkey'       => 'button_test_connection',
         'descriptionkey' => 'button_test_connection_desc',
-        'methodname'     => 'local_fastpix_test_connection',
-        'successtpl'     => 'Authenticated · {$a} ms',
-        'successfield'   => 'latency_ms',
         'iconsvg'        => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
     ]),
 ));
+$localfastpixjsbuttons[] = [
+    'buttonId'     => $btntestconnectionid,
+    'statusId'     => $btntestconnectionstatusid,
+    'methodname'   => 'local_fastpix_test_connection',
+    'successField' => 'latency_ms',
+    'runningKey'   => 'test_connection_running',
+    'successKey'   => 'test_connection_success',
+    'failedKey'    => 'test_connection_failed',
+];
 
 // 2. Upload defaults.
 //
@@ -371,7 +303,7 @@ $settings->add(new admin_setting_configtext(
 ));
 
 // Show/hide the DRM config id with the DRM toggle is handled by the card
-// enhancer's toggle logic (see $fpcardscript: CFG.reveals), which owns the
+// enhancer's toggle logic (amd/src/settings.js, CFG.reveals), which owns the
 // pill toggle and therefore the dependent-field visibility deterministically.
 // The runtime double-gate (rule W12) is what actually enforces correctness;
 // this is UI clarity only. With JS off the field simply stays visible.
@@ -408,14 +340,15 @@ $webhookurlbtnid = 'local_fastpix_webhook_url_copy_btn';
 // secret rows' icon + label treatment.
 $webhookcopyicon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>';
 $webhookcheckicon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>';
-$webhookurljson = json_encode([
+// Copy-button config handed to the local_fastpix/settings AMD enhancer.
+$localfastpixjscopy = [
     'urlId'     => $webhookurlid,
     'btnId'     => $webhookurlbtnid,
     'iconCopy'  => $webhookcopyicon,
     'iconCheck' => $webhookcheckicon,
     'labelCopy' => get_string('button_copy_webhook_url', 'local_fastpix'),
     'labelDone' => get_string('button_copy_webhook_url_done', 'local_fastpix'),
-], JSON_HEX_TAG | JSON_HEX_QUOT | JSON_HEX_AMP);
+];
 // Reuse the card's .fp-input-wrap layout (same as the secret rows) so the
 // read-only URL input shrinks (min-width:0) and the Copy button stays inside
 // the card instead of overflowing on long ngrok/site URLs.
@@ -448,49 +381,6 @@ $webhookurlhtml .= \html_writer::div(
     get_string('setting_webhook_url_help', 'local_fastpix', $webhookurlhelplink),
     'fp-field-help'
 );
-$webhookurlhtml .= <<<SCRIPT
-<script>
-(function() {
-    var cfg = {$webhookurljson};
-    function bind() {
-        var btn = document.getElementById(cfg.btnId);
-        var urlEl = document.getElementById(cfg.urlId);
-        if (!btn || !urlEl || btn.dataset.fpBound === '1') return;
-        btn.dataset.fpBound = '1';
-        btn.addEventListener('click', function() {
-            var text = (urlEl.value !== undefined ? urlEl.value : urlEl.textContent) || '';
-            var done = function() {
-                btn.innerHTML = cfg.iconCheck + '<span>' + cfg.labelDone + '</span>';
-                setTimeout(function() {
-                    btn.innerHTML = cfg.iconCopy + '<span>' + cfg.labelCopy + '</span>';
-                }, 1500);
-            };
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(text).then(done).catch(function() {
-                    // Fallback for older browsers / non-secure contexts.
-                    var ta = document.createElement('textarea');
-                    ta.value = text;
-                    document.body.appendChild(ta);
-                    ta.select();
-                    try { document.execCommand('copy'); done(); } finally { document.body.removeChild(ta); }
-                });
-            } else {
-                var ta = document.createElement('textarea');
-                ta.value = text;
-                document.body.appendChild(ta);
-                ta.select();
-                try { document.execCommand('copy'); done(); } finally { document.body.removeChild(ta); }
-            }
-        });
-    }
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', bind);
-    } else {
-        bind();
-    }
-})();
-</script>
-SCRIPT;
 $settings->add(new admin_setting_description(
     'local_fastpix/webhook_url',
     new lang_string('setting_webhook_url', 'local_fastpix'),
@@ -528,12 +418,18 @@ $settings->add(new admin_setting_description(
         'statusid'       => $btnsendeventstatusid,
         'labelkey'       => 'button_send_test_event',
         'descriptionkey' => 'button_send_test_event_desc',
-        'methodname'     => 'local_fastpix_send_test_event',
-        'successtpl'     => 'Test event delivered (ledger id {$a})',
-        'successfield'   => 'ledger_id',
         'iconsvg'        => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>',
     ]),
 ));
+$localfastpixjsbuttons[] = [
+    'buttonId'     => $btnsendeventid,
+    'statusId'     => $btnsendeventstatusid,
+    'methodname'   => 'local_fastpix_send_test_event',
+    'successField' => 'ledger_id',
+    'runningKey'   => 'send_test_event_running',
+    'successKey'   => 'send_test_event_success',
+    'failedKey'    => 'send_test_event_failed',
+];
 
 // Card restyle (progressive enhancement).
 //
@@ -566,7 +462,7 @@ $fpbrandlogo = '<svg viewBox="0 0 494 433" fill="none" aria-hidden="true">'
     . '<path d="M97.767 224.282L475.617 77.7159C475.617 77.7159 493.748 68.6251 493.748 37.5493C493.748 37.5493 493.748 10.0913 458.548 1.00049L41.9285 1.64983C41.9285 1.64983 -12.1406 5.15676 5.31496 66.659L279.17 105.127C279.17 105.127 300.001 111.482 279.17 136.064L53.6941 150.164L97.767 224.282Z" fill="#30F2A2"/>'
     . '</svg>';
 
-$fpcardcfg = json_encode([
+$fpcardcfg = [
     'brandName' => get_string('pluginname', 'local_fastpix'),
     'brandLogo' => $fpbrandlogo,
     // Shown in a popup from the "i" button beside the Test connection / Send
@@ -584,10 +480,10 @@ $fpcardcfg = json_encode([
         ['title' => get_string('settings_features', 'local_fastpix'), 'icon' => $fpcardicons['flag']],
         ['title' => get_string('settings_webhooks', 'local_fastpix'), 'icon' => $fpcardicons['hook']],
     ],
-    'skipIds'     => ['admin-fp_cards'],
+    // apikey/apisecret are NOT listed here: they use admin_setting_configpasswordunmask,
+    // which owns its own mask/reveal widget. The card enhancer only decorates the
+    // remaining plain-text secret-ish fields.
     'secrets'     => [
-        'id_s_local_fastpix_apikey',
-        'id_s_local_fastpix_apisecret',
         'id_s_local_fastpix_drm_configuration_id',
         'id_s_local_fastpix_webhook_secret_current',
     ],
@@ -612,496 +508,17 @@ $fpcardcfg = json_encode([
         'defaultNo'  => get_string('no'),
         'defaultYes' => get_string('yes'),
     ],
-], JSON_HEX_TAG | JSON_HEX_QUOT | JSON_HEX_AMP);
+];
 
-$fpcardstyle = <<<'CSS'
-<style>
-/* NB: no overflow:hidden on the card — it would clip the custom <select>
-   dropdown menu (position:absolute) and kill its scroll. Header corners are
-   rounded explicitly instead so the header background stays inside the
-   rounded card border. */
-#page-admin-setting-local_fastpix .fp-card{background:#fff;border:1px solid #ececef;border-radius:12px;margin:0 0 18px;}
-#page-admin-setting-local_fastpix .fp-card-h{display:flex;gap:14px;align-items:center;padding:18px 24px;background:#fafbfc;border-bottom:1px solid #ececef;border-radius:12px 12px 0 0;}
-#page-admin-setting-local_fastpix .fp-card-icon{width:46px;height:46px;border-radius:10px;background:#fef0f5;color:#ec1e5b;display:grid;place-items:center;flex-shrink:0;}
-#page-admin-setting-local_fastpix .fp-card-icon svg{width:26px;height:26px;}
-#page-admin-setting-local_fastpix .fp-card-htext{flex:1;min-width:0;}
-#page-admin-setting-local_fastpix .fp-card-htext h3.main{margin:0;padding:0;border:0;font-size:20px;font-weight:800;color:#1d2125;letter-spacing:-.01em;}
-#page-admin-setting-local_fastpix .fp-card-htext .formsettingheading{border:0;background:none;padding:0;margin:4px 0 0;font-size:14px;color:#4f5560;line-height:1.5;}
-#page-admin-setting-local_fastpix .fp-card-htext .formsettingheading a{color:#0f6cbf;font-weight:600;text-decoration:none;}
-#page-admin-setting-local_fastpix .fp-card-htext .formsettingheading a:hover{color:#0a5499;text-decoration:underline;}
-#page-admin-setting-local_fastpix .fp-cred-desc{white-space:nowrap;}
-#page-admin-setting-local_fastpix .fp-card-body .form-item{display:grid;grid-template-columns:240px 1fr;gap:24px;padding:20px 24px;margin:0;border-bottom:1px solid #ececef;align-items:flex-start;}
-#page-admin-setting-local_fastpix .fp-card-body .form-item:last-child{border-bottom:0;}
-/* text-align:left !important beats Bootstrap's .text-sm-end (text-align:right
-   !important) on the admin_setting_description label (Test connection / Send
-   test event rows), which otherwise right-aligns the title against the button. */
-#page-admin-setting-local_fastpix .fp-card-body .form-label{float:none;width:auto;max-width:none;text-align:left!important;padding:0;font-size:15px;font-weight:600;color:#1d2125;}
-#page-admin-setting-local_fastpix .fp-card-body .form-label .form-shortname{display:block;font-size:12px;color:#767b85;margin-top:4px;font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-weight:400;}
-#page-admin-setting-local_fastpix .fp-card-body .form-setting{float:none;width:auto;max-width:none;margin:0;padding:0;}
-#page-admin-setting-local_fastpix .fp-card-body .form-description{float:none;max-width:64ch;margin:10px 0 0;padding:0;grid-column:2;font-size:14px;color:#4f5560;line-height:1.55;}
-#page-admin-setting-local_fastpix .fp-card-body .form-defaultinfo{font-size:14px;color:#767b85;margin-top:10px;}
-#page-admin-setting-local_fastpix .fp-card-body .form-description code,#page-admin-setting-local_fastpix .fp-card-body .form-defaultinfo code{background:#f6f7f9;padding:1px 6px;border-radius:4px;font-size:.92em;}
-#page-admin-setting-local_fastpix .fp-input-wrap{display:flex;align-items:stretch;gap:8px;max-width:640px;}
-#page-admin-setting-local_fastpix .fp-card-body .form-item input[type=text]{flex:1;min-width:0;height:44px;padding:0 14px;border:1px solid #dee2e6;border-radius:8px;font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:14px;color:#1d2125;background:#fff;}
-#page-admin-setting-local_fastpix .fp-card-body .form-item input[type=text]:focus{outline:0;border-color:#ec1e5b;box-shadow:0 0 0 3px rgba(236,30,91,.12);}
-#page-admin-setting-local_fastpix .fp-card-body .form-item select{height:44px;width:100%;max-width:640px;padding:0 38px 0 14px;border:1px solid #dee2e6;border-radius:8px;background:#fff url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%23767b85' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>") no-repeat right 14px center;appearance:none;-webkit-appearance:none;font-size:14px;color:#1d2125;cursor:pointer;}
-#page-admin-setting-local_fastpix .fp-card-body .form-item select:focus{outline:0;border-color:#ec1e5b;box-shadow:0 0 0 3px rgba(236,30,91,.12);}
-/* Duration controls (Retention & cleanup): one compact unit = a small number
-   field + a content-sized unit dropdown, with a clear gap between them. The
-   generic rules above stretch the number to flex:1 and cap the select at 640px
-   (meant for full-width selects); a duration wants neither. Scope everything to
-   .form-duration so the access-policy / resolution selects stay full width. */
-#page-admin-setting-local_fastpix .fp-card-body .form-item .form-duration{display:inline-flex;}
-#page-admin-setting-local_fastpix .fp-card-body .form-item .form-duration .d-flex{gap:12px;align-items:center;}
-#page-admin-setting-local_fastpix .fp-card-body .form-item .form-duration input[type=text]{flex:0 0 auto;width:104px;text-align:center;}
-#page-admin-setting-local_fastpix .fp-card-body .form-item .form-duration select{flex:0 0 auto;width:auto;min-width:148px;max-width:none;}
-#page-admin-setting-local_fastpix .fp-card-body .form-item .form-duration .fp-select-wrap{flex:0 0 auto;width:auto;min-width:148px;max-width:none;}
-/* Button rows (Test connection / Send test event): line 1 is the button plus,
-   on click, a green/red result chip; the static hint sits below as a blue info
-   chip (always shown). */
-#page-admin-setting-local_fastpix .form-description .form-text{display:table;margin:14px 0 0;padding:10px 14px;border:0;border-radius:8px;background:#e6f0fa;color:#0f6cbf;font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:13.5px;line-height:1.6;white-space:nowrap;}
-#page-admin-setting-local_fastpix .fp-card-body .form-item:has(.form-description .btn) .form-setting{padding-left:16px;}
-#page-admin-setting-local_fastpix .form-description .btn{vertical-align:middle;}
-#page-admin-setting-local_fastpix .local-fastpix-status{display:inline-flex;align-items:center;gap:8px;margin-left:14px;vertical-align:middle;font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:13.5px;line-height:1;}
-#page-admin-setting-local_fastpix .local-fastpix-status:empty{display:none;}
-#page-admin-setting-local_fastpix .local-fastpix-status.fp-status-ok{padding:9px 14px;border-radius:8px;background:#e6f5ec;color:#138a3f;}
-#page-admin-setting-local_fastpix .local-fastpix-status.fp-status-err{padding:9px 14px;border-radius:8px;background:#fdecec;color:#c92a2a;}
-#page-admin-setting-local_fastpix .local-fastpix-status.fp-status-busy{color:#767b85;}
-/* Custom accessible select (replaces native dropdown UI; native select stays in DOM, hidden, for form submit). */
-#page-admin-setting-local_fastpix .fp-select-wrap{position:relative;max-width:640px;}
-#page-admin-setting-local_fastpix .fp-native-hidden{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;border:0;overflow:hidden;clip:rect(0,0,0,0);}
-#page-admin-setting-local_fastpix .fp-select{display:flex;align-items:center;gap:10px;width:100%;height:44px;padding:0 14px;border:1px solid #dee2e6;border-radius:8px;background:#fff;font-size:14px;font-family:inherit;color:#1d2125;cursor:pointer;text-align:left;}
-#page-admin-setting-local_fastpix .fp-select:hover{border-color:#c9cfd8;}
-#page-admin-setting-local_fastpix .fp-select-wrap.is-open .fp-select,#page-admin-setting-local_fastpix .fp-select:focus-visible{outline:0;border-color:#ec1e5b;box-shadow:0 0 0 3px rgba(236,30,91,.12);}
-#page-admin-setting-local_fastpix .fp-select-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-#page-admin-setting-local_fastpix .fp-select-chev{flex-shrink:0;color:#767b85;display:grid;place-items:center;transition:transform .18s ease;}
-#page-admin-setting-local_fastpix .fp-select-chev svg{width:12px;height:8px;}
-#page-admin-setting-local_fastpix .fp-select-wrap.is-open .fp-select-chev{transform:rotate(180deg);}
-#page-admin-setting-local_fastpix .fp-select-menu{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:50;margin:0;padding:6px;list-style:none;background:#fff;border:1px solid #ececef;border-radius:12px;box-shadow:0 12px 32px -8px rgba(20,24,30,.18),0 2px 8px rgba(20,24,30,.06);max-height:320px;overflow:auto;}
-#page-admin-setting-local_fastpix .fp-select-opt{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;font-size:14px;color:#1d2125;cursor:pointer;line-height:1.4;}
-#page-admin-setting-local_fastpix .fp-select-opt .fp-select-check{width:16px;height:16px;flex-shrink:0;color:#ec1e5b;opacity:0;display:grid;place-items:center;}
-#page-admin-setting-local_fastpix .fp-select-opt .fp-select-check svg{width:16px;height:16px;}
-#page-admin-setting-local_fastpix .fp-select-opt:hover,#page-admin-setting-local_fastpix .fp-select-opt.is-active{background:#f6f7f9;}
-#page-admin-setting-local_fastpix .fp-select-opt.is-selected{color:#c3174a;font-weight:600;}
-#page-admin-setting-local_fastpix .fp-select-opt.is-selected .fp-select-check{opacity:1;}
-#page-admin-setting-local_fastpix input.fp-masked{-webkit-text-security:disc;letter-spacing:2px;}
-/* FastPix logo tile injected beside the core "FastPix" page heading. */
-#page-admin-setting-local_fastpix .fp-titled{display:inline-flex;align-items:center;gap:14px;}
-#page-admin-setting-local_fastpix .fp-title-logo{display:inline-grid;place-items:center;flex-shrink:0;width:1.7em;height:1.7em;}
-#page-admin-setting-local_fastpix .fp-title-logo svg{width:100%;height:100%;display:block;}
-/* Clickable "i" beside the page title + its popup. */
-#page-admin-setting-local_fastpix .fp-info-wrap{position:relative;display:inline-flex;align-items:center;vertical-align:middle;margin-left:6px;}
-#page-admin-setting-local_fastpix .fp-info-btn{appearance:none;border:0;cursor:pointer;display:inline-grid;place-items:center;width:1.5rem;height:1.5rem;padding:0;border-radius:50%;color:#ec1e5b;background:#fef0f5;}
-#page-admin-setting-local_fastpix .fp-info-btn:hover{color:#fff;background:#ec1e5b;}
-#page-admin-setting-local_fastpix .fp-info-btn:focus-visible{outline:0;box-shadow:0 0 0 3px rgba(236,30,91,.2);}
-#page-admin-setting-local_fastpix .fp-info-btn svg{width:1.05rem;height:1.05rem;}
-#page-admin-setting-local_fastpix .fp-info-pop{position:absolute;top:calc(100% + 8px);left:0;z-index:60;width:320px;max-width:80vw;padding:14px 16px;background:#fff;border:1px solid #ececef;border-radius:12px;box-shadow:0 12px 32px -8px rgba(20,24,30,.18),0 2px 8px rgba(20,24,30,.06);font-size:14px;font-weight:400;color:#4f5560;line-height:1.55;letter-spacing:0;}
-#page-admin-setting-local_fastpix .fp-info-pop[hidden]{display:none;}
-#page-admin-setting-local_fastpix .fp-info-pop strong{font-weight:700;color:#1d2125;}
-/* Inline help text shown below a field's input (e.g. the webhook URL). */
-#page-admin-setting-local_fastpix .fp-field-help{margin:12px 0 0;max-width:64ch;font-size:14px;color:#4f5560;line-height:1.55;}
-#page-admin-setting-local_fastpix .fp-field-help a{color:#0f6cbf;font-weight:600;text-decoration:none;}
-#page-admin-setting-local_fastpix .fp-field-help a:hover{color:#0a5499;text-decoration:underline;}
-/* Pill toggle (replaces the native checkbox UI; native input stays hidden in DOM). */
-#page-admin-setting-local_fastpix .fp-toggle-wrap{display:inline-flex;align-items:center;gap:14px;}
-#page-admin-setting-local_fastpix .fp-toggle{position:relative;flex-shrink:0;width:46px;height:26px;padding:0;border:0;border-radius:999px;background:#d1d5db;cursor:pointer;transition:background .18s ease;}
-#page-admin-setting-local_fastpix .fp-toggle::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(20,24,30,.3);transition:transform .18s ease;}
-#page-admin-setting-local_fastpix .fp-toggle.is-on{background:#ec1e5b;}
-#page-admin-setting-local_fastpix .fp-toggle.is-on::after{transform:translateX(20px);}
-#page-admin-setting-local_fastpix .fp-toggle:focus-visible{outline:0;box-shadow:0 0 0 3px rgba(236,30,91,.25);}
-#page-admin-setting-local_fastpix .fp-toggle-label{font-size:15px;font-weight:600;color:#1d2125;}
-#page-admin-setting-local_fastpix .fp-ibtn{appearance:none;cursor:pointer;background:#fff;border:1px solid #dee2e6;border-radius:8px;height:44px;padding:0 14px;font-size:14px;font-weight:600;color:#4f5560;display:inline-flex;align-items:center;gap:7px;}
-#page-admin-setting-local_fastpix .fp-ibtn:hover{border-color:#aab2c0;background:#fafbfc;color:#1d2125;}
-#page-admin-setting-local_fastpix .fp-ibtn svg{width:20px;height:20px;}
-@media (max-width:880px){
-#page-admin-setting-local_fastpix .fp-card-body .form-item{grid-template-columns:1fr;gap:8px;}
-#page-admin-setting-local_fastpix .fp-card-body .form-description{grid-column:1;}
-#page-admin-setting-local_fastpix .fp-cred-desc{white-space:normal;}
-}
-</style>
-CSS;
-
-$fpcardscript = <<<SCRIPT
-<script>
-(function() {
-    var CFG = {$fpcardcfg};
-    function ready(fn) {
-        if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', fn); }
-        else { fn(); }
-    }
-    ready(function() {
-        try {
-            var page = document.getElementById('page-admin-setting-local_fastpix') || document.body;
-            var form = document.getElementById('adminsettings') || page;
-            var heads = Array.prototype.slice.call(form.querySelectorAll('h3.main'));
-            if (!heads.length) { return; }
-            var container = heads[0].parentNode;
-            page.classList.add('fp-enhanced');
-
-            // Drop the FastPix logo beside the core "FastPix" page-title heading.
-            if (CFG.brandLogo && CFG.brandName) {
-                var titleHeads = page.querySelectorAll('h1, h2');
-                for (var ti = 0; ti < titleHeads.length; ti++) {
-                    var th = titleHeads[ti];
-                    if (th.dataset.fpLogo === '1' || th.querySelector('svg')) { continue; }
-                    if ((th.textContent || '').trim().indexOf(CFG.brandName) === 0) {
-                        th.dataset.fpLogo = '1';
-                        th.classList.add('fp-titled');
-                        var logo = document.createElement('span');
-                        logo.className = 'fp-title-logo';
-                        logo.innerHTML = CFG.brandLogo;
-                        th.insertBefore(logo, th.firstChild);
-                        break;
-                    }
-                }
-            }
-
-            // Clickable "i" beside a label -> popup. Used on the Test connection
-            // and Send test event rows to warn that those buttons act on SAVED
-            // settings, not unsaved field values.
-            function fpAttachInfo(host) {
-                if (!host || host.querySelector('.fp-info-wrap')) { return; }
-                var info = document.createElement('span');
-                info.className = 'fp-info-wrap';
-                var ibtn = document.createElement('button');
-                ibtn.type = 'button';
-                ibtn.className = 'fp-info-btn';
-                ibtn.setAttribute('aria-label', CFG.infoLabel || 'More information');
-                ibtn.setAttribute('aria-expanded', 'false');
-                ibtn.innerHTML = CFG.infoIcon;
-                var pop = document.createElement('span');
-                pop.className = 'fp-info-pop';
-                pop.setAttribute('role', 'tooltip');
-                pop.hidden = true;
-                pop.innerHTML = CFG.saveNotice;
-                info.appendChild(ibtn);
-                info.appendChild(pop);
-                host.appendChild(info);
-
-                var hide = function() {
-                    pop.hidden = true;
-                    ibtn.setAttribute('aria-expanded', 'false');
-                    document.removeEventListener('mousedown', outside, true);
-                };
-                var outside = function(e) { if (!info.contains(e.target)) { hide(); } };
-                ibtn.addEventListener('click', function() {
-                    if (pop.hidden) {
-                        pop.hidden = false;
-                        ibtn.setAttribute('aria-expanded', 'true');
-                        document.addEventListener('mousedown', outside, true);
-                    } else {
-                        hide();
-                    }
-                });
-                ibtn.addEventListener('keydown', function(e) {
-                    if (e.key === 'Escape' && !pop.hidden) { hide(); ibtn.focus(); }
-                });
-            }
-            if (CFG.saveNotice && CFG.infoIcon) {
-                (CFG.infoRows || []).forEach(function(id) {
-                    var btn = document.getElementById(id);
-                    var item = btn && btn.closest ? btn.closest('.form-item') : null;
-                    if (!item) { return; }
-                    var lbl = item.querySelector('.form-label label') || item.querySelector('.form-label');
-                    if (lbl) { fpAttachInfo(lbl); }
-                });
-            }
-
-            var iconByTitle = {};
-            CFG.sections.forEach(function(s) { iconByTitle[(s.title || '').trim()] = s.icon; });
-            var skip = {};
-            (CFG.skipIds || []).forEach(function(id) { skip[id] = 1; });
-
-            // Snapshot the ordered children before we start moving nodes.
-            var nodes = Array.prototype.slice.call(container.children);
-            var body = null;
-            nodes.forEach(function(node) {
-                if (node.matches && node.matches('h3.main')) {
-                    var card = document.createElement('section');
-                    card.className = 'fp-card';
-                    var header = document.createElement('div');
-                    header.className = 'fp-card-h';
-                    var icon = document.createElement('span');
-                    icon.className = 'fp-card-icon';
-                    icon.innerHTML = iconByTitle[(node.textContent || '').trim()] || '';
-                    var htext = document.createElement('div');
-                    htext.className = 'fp-card-htext';
-                    header.appendChild(icon);
-                    header.appendChild(htext);
-                    body = document.createElement('div');
-                    body.className = 'fp-card-body';
-                    card.appendChild(header);
-                    card.appendChild(body);
-                    container.insertBefore(card, node);
-                    htext.appendChild(node);
-                    return;
-                }
-                if (node.classList && node.classList.contains('formsettingheading')) {
-                    // Description belongs in the header of the card just built.
-                    var card2 = container.querySelector('.fp-card:last-of-type .fp-card-htext');
-                    if (card2) { card2.appendChild(node); }
-                    return;
-                }
-                if (body && node.classList && node.classList.contains('form-item')) {
-                    if (skip[node.id]) { node.style.display = 'none'; return; }
-                    body.appendChild(node);
-                }
-            });
-
-            // Masked credential inputs with reveal (eye) + copy.
-            (CFG.secrets || []).forEach(function(id) {
-                var inp = document.getElementById(id);
-                if (!inp || inp.dataset.fpDecorated === '1') { return; }
-                inp.dataset.fpDecorated = '1';
-                inp.classList.add('fp-masked');
-                var wrap = document.createElement('div');
-                wrap.className = 'fp-input-wrap';
-                inp.parentNode.insertBefore(wrap, inp);
-                wrap.appendChild(inp);
-
-                var reveal = document.createElement('button');
-                reveal.type = 'button';
-                reveal.className = 'fp-ibtn';
-                reveal.innerHTML = CFG.icons.eye;
-                reveal.addEventListener('click', function() {
-                    var masked = inp.classList.toggle('fp-masked');
-                    reveal.innerHTML = masked ? CFG.icons.eye : CFG.icons.eyeoff;
-                });
-
-                var copy = document.createElement('button');
-                copy.type = 'button';
-                copy.className = 'fp-ibtn';
-                copy.innerHTML = CFG.icons.copy + '<span>' + CFG.labels.copy + '</span>';
-                copy.addEventListener('click', function() {
-                    var v = inp.value || '';
-                    var span = copy.querySelector('span');
-                    var done = function() {
-                        copy.innerHTML = CFG.icons.check + '<span>' + CFG.labels.copied + '</span>';
-                        setTimeout(function() {
-                            copy.innerHTML = CFG.icons.copy + '<span>' + CFG.labels.copy + '</span>';
-                        }, 1400);
-                    };
-                    if (navigator.clipboard && navigator.clipboard.writeText) {
-                        navigator.clipboard.writeText(v).then(done).catch(done);
-                    } else {
-                        inp.removeAttribute('readonly'); inp.select();
-                        try { document.execCommand('copy'); done(); } catch (e) {}
-                    }
-                });
-
-                wrap.appendChild(reveal);
-                wrap.appendChild(copy);
-            });
-
-            // Pill toggles replacing each native checkbox. The native input
-            // stays in the DOM (visually hidden) as the form's source of truth,
-            // so Moodle's save path is unchanged.
-            (CFG.toggles || []).forEach(function(id) {
-                var cb = document.getElementById(id);
-                if (!cb || cb.dataset.fpToggle === '1') { return; }
-                cb.dataset.fpToggle = '1';
-                cb.classList.add('fp-native-hidden');
-                cb.setAttribute('tabindex', '-1');
-                cb.setAttribute('aria-hidden', 'true');
-
-                var wrap = document.createElement('span');
-                wrap.className = 'fp-toggle-wrap';
-                cb.parentNode.insertBefore(wrap, cb);
-                wrap.appendChild(cb);
-
-                var btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'fp-toggle';
-                btn.setAttribute('role', 'switch');
-                var lbl = document.createElement('span');
-                lbl.className = 'fp-toggle-label';
-
-                // Dependent field to reveal only while the toggle is on.
-                var revealId = (CFG.reveals || {})[id];
-                var revealItem = revealId ? document.getElementById(revealId) : null;
-
-                function sync() {
-                    var on = cb.checked;
-                    btn.classList.toggle('is-on', on);
-                    btn.setAttribute('aria-checked', on ? 'true' : 'false');
-                    lbl.textContent = on ? CFG.labels.toggleOn : CFG.labels.toggleOff;
-                    if (revealItem) { revealItem.style.display = on ? '' : 'none'; }
-                }
-                // Drive the native checkbox with a real click so Moodle's
-                // hide_if dependency manager fires and shows/hides the
-                // dependent DRM Configuration ID field. (Setting .checked +
-                // a synthetic 'change' does NOT trigger that logic.)
-                btn.addEventListener('click', function() {
-                    cb.click();
-                    sync();
-                });
-                // Keep the toggle in sync if anything else flips the checkbox.
-                cb.addEventListener('change', sync);
-
-                wrap.appendChild(btn);
-                wrap.appendChild(lbl);
-                sync();
-
-                // Rewrite the native "Default: No/Yes" hint to the
-                // Enabled/Disabled wording shown beside the toggle.
-                var item = btn.closest ? btn.closest('.form-item') : null;
-                if (item) {
-                    var di = item.querySelector('.form-defaultinfo');
-                    if (di) {
-                        di.textContent = di.textContent
-                            .replace(new RegExp('\\\\b' + CFG.labels.defaultNo + '\\\\b'), CFG.labels.toggleOff)
-                            .replace(new RegExp('\\\\b' + CFG.labels.defaultYes + '\\\\b'), CFG.labels.toggleOn);
-                        // Drop it onto its own line below the toggle (Moodle's
-                        // defaultsnext layout renders it inline next to the input).
-                        di.style.display = 'block';
-                    }
-                }
-            });
-
-            // Custom accessible dropdown replacing each native <select>. The
-            // native select stays in the DOM (visually hidden) and remains the
-            // source of truth, so Moodle's form save is unchanged.
-            function enhanceSelect(sel) {
-                if (sel.dataset.fpSelect === '1') { return; }
-                sel.dataset.fpSelect = '1';
-                var wrap = document.createElement('div');
-                wrap.className = 'fp-select-wrap';
-                sel.parentNode.insertBefore(wrap, sel);
-                wrap.appendChild(sel);
-                sel.classList.add('fp-native-hidden');
-                sel.setAttribute('tabindex', '-1');
-                sel.setAttribute('aria-hidden', 'true');
-
-                var btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'fp-select';
-                btn.setAttribute('aria-haspopup', 'listbox');
-                btn.setAttribute('aria-expanded', 'false');
-                var label = document.createElement('span');
-                label.className = 'fp-select-label';
-                var chev = document.createElement('span');
-                chev.className = 'fp-select-chev';
-                chev.innerHTML = CFG.icons.chevron;
-                btn.appendChild(label);
-                btn.appendChild(chev);
-
-                var menu = document.createElement('ul');
-                menu.className = 'fp-select-menu';
-                menu.setAttribute('role', 'listbox');
-                menu.hidden = true;
-
-                var items = [];
-                var active = -1;
-                Array.prototype.forEach.call(sel.options, function(opt, i) {
-                    var li = document.createElement('li');
-                    li.className = 'fp-select-opt';
-                    li.setAttribute('role', 'option');
-                    var check = document.createElement('span');
-                    check.className = 'fp-select-check';
-                    check.innerHTML = CFG.icons.check;
-                    var txt = document.createElement('span');
-                    txt.textContent = opt.text;
-                    li.appendChild(check);
-                    li.appendChild(txt);
-                    li.addEventListener('click', function() { choose(i); });
-                    li.addEventListener('mousemove', function() { setActive(i); });
-                    menu.appendChild(li);
-                    items.push(li);
-                });
-
-                wrap.appendChild(btn);
-                wrap.appendChild(menu);
-
-                function sync() {
-                    var idx = sel.selectedIndex;
-                    label.textContent = idx >= 0 ? sel.options[idx].text : '';
-                    items.forEach(function(li, i) {
-                        var on = (i === idx);
-                        li.classList.toggle('is-selected', on);
-                        li.setAttribute('aria-selected', on ? 'true' : 'false');
-                    });
-                }
-                function setActive(i) {
-                    active = i;
-                    items.forEach(function(li, j) { li.classList.toggle('is-active', j === i); });
-                    if (items[i]) { items[i].scrollIntoView({ block: 'nearest' }); }
-                }
-                function open() {
-                    menu.hidden = false;
-                    wrap.classList.add('is-open');
-                    btn.setAttribute('aria-expanded', 'true');
-                    position();
-                    setActive(sel.selectedIndex < 0 ? 0 : sel.selectedIndex);
-                    document.addEventListener('mousedown', outside, true);
-                    window.addEventListener('resize', position);
-                    window.addEventListener('scroll', position, true);
-                }
-                // Open downward by default; flip above the button when there
-                // isn't room below. Either way clamp max-height to the space
-                // actually available (min 160px) so the menu's own scrollbar
-                // engages instead of the list spilling off-screen.
-                function position() {
-                    var GAP = 6, MARGIN = 12, MINH = 160, CAP = 320;
-                    var r = btn.getBoundingClientRect();
-                    var below = window.innerHeight - r.bottom - GAP - MARGIN;
-                    var above = r.top - GAP - MARGIN;
-                    var up = below < MINH && above > below;
-                    var space = Math.max(MINH, Math.min(CAP, up ? above : below));
-                    menu.style.maxHeight = space + 'px';
-                    if (up) {
-                        menu.style.top = 'auto';
-                        menu.style.bottom = 'calc(100% + ' + GAP + 'px)';
-                    } else {
-                        menu.style.bottom = 'auto';
-                        menu.style.top = 'calc(100% + ' + GAP + 'px)';
-                    }
-                }
-                function close() {
-                    menu.hidden = true;
-                    wrap.classList.remove('is-open');
-                    btn.setAttribute('aria-expanded', 'false');
-                    document.removeEventListener('mousedown', outside, true);
-                    window.removeEventListener('resize', position);
-                    window.removeEventListener('scroll', position, true);
-                }
-                function outside(e) { if (!wrap.contains(e.target)) { close(); } }
-                function choose(i) {
-                    if (i < 0 || i >= sel.options.length) { return; }
-                    sel.selectedIndex = i;
-                    sel.dispatchEvent(new Event('change', { bubbles: true }));
-                    sync();
-                    close();
-                    btn.focus();
-                }
-
-                btn.addEventListener('click', function() { if (menu.hidden) { open(); } else { close(); } });
-                btn.addEventListener('keydown', function(e) {
-                    if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        if (menu.hidden) { open(); return; }
-                        if (e.key === 'ArrowDown') { setActive(Math.min(items.length - 1, active + 1)); }
-                        else if (e.key === 'ArrowUp') { setActive(Math.max(0, active - 1)); }
-                        else { choose(active); }
-                    } else if (e.key === 'Escape') {
-                        if (!menu.hidden) { e.preventDefault(); close(); btn.focus(); }
-                    } else if (e.key === 'Home') { e.preventDefault(); if (!menu.hidden) { setActive(0); } }
-                    else if (e.key === 'End') { e.preventDefault(); if (!menu.hidden) { setActive(items.length - 1); } }
-                });
-
-                sync();
-            }
-            var selform = document.getElementById('adminsettings') || page;
-            Array.prototype.forEach.call(selform.querySelectorAll('.fp-card-body select'), enhanceSelect);
-        } catch (e) {
-            if (window.console && console.warn) { console.warn('local_fastpix cards:', e); }
-        }
-    });
-})();
-</script>
-SCRIPT;
-
-$settings->add(new admin_setting_description(
-    'local_fastpix/fp_cards',
-    '',
-    $fpcardstyle . $fpcardscript,
-));
+// Load the settings-page enhancer. All inline <script>/<style> that used to
+// live in this file has moved out per the Moodle coding style — the JS into
+// amd/src/settings.js, the CSS into styles.css. Every enhancement (section
+// cards, masked credential inputs, pill toggles, custom selects, the AJAX
+// action buttons and the webhook-URL copy) degrades gracefully: with JS off
+// the page still renders and saves through Moodle's default widgets.
+global $PAGE;
+$PAGE->requires->js_call_amd('local_fastpix/settings', 'init', [[
+    'buttons' => $localfastpixjsbuttons,
+    'copy'    => $localfastpixjscopy,
+    'cards'   => $fpcardcfg,
+]]);

@@ -35,14 +35,18 @@
 namespace local_fastpix\admin;
 
 /**
- * Admin text setting that triggers signing-key rotation when its value changes.
+ * Admin masked-password setting that triggers signing-key rotation when its
+ * value changes. Extends admin_setting_configpasswordunmask so the API key /
+ * secret render as masked fields (browser dots, opt-in reveal) rather than
+ * plaintext. NB: the value is still stored as plaintext in mdl_config_plugins
+ * (rule S8, disclosed in README.md) — the widget masks the UI, not the storage.
  *
  * The class name is snake_case by Moodle Frankenstyle (rule M2) — the autoloader
  * maps \local_fastpix\admin\setting_credential to this file. SonarQube php:S101
  * (PascalCase) is a documented false positive (excluded in
  * sonar-project.properties); see docs/review/SONARQUBE-2026-06-11.md §4.
  */
-class setting_credential extends \admin_setting_configtext {
+class setting_credential extends \admin_setting_configpasswordunmask {
     /** @var bool Module-scoped guard: rotation shutdown fn registered once per request. */
     private static bool $rotationscheduled = false;
 

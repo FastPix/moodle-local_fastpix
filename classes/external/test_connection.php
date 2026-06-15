@@ -65,10 +65,15 @@ class test_connection extends \core_external\external_api {
         try {
             $success = (bool)\local_fastpix\api\gateway::instance()->health_probe();
             if (!$success) {
-                $error = 'health_probe returned false';
+                $error = get_string('test_connection_probe_failed', 'local_fastpix');
             }
         } catch (\Throwable $e) {
-            $error = get_class($e) . ': ' . $e->getMessage();
+            // health_probe() is documented never to throw; this is defensive.
+            // Log only the exception class server-side (the message may carry an
+            // upstream response body — rule S2) and return a safe, localised
+            // message to the caller rather than the internal class/message.
+            debugging('local_fastpix test_connection: unexpected ' . get_class($e), DEBUG_DEVELOPER);
+            $error = get_string('test_connection_probe_failed', 'local_fastpix');
         }
         $latencyms = (int)((microtime(true) - $start) * 1000);
 

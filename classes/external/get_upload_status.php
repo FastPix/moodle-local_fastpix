@@ -88,7 +88,7 @@ class get_upload_status extends \core_external\external_api {
         self::validate_context($context);
         $coursecontext = $context->get_course_context();
         require_login(null, false);
-        require_capability('mod/fastpix:uploadmedia', $coursecontext);
+        upload_capability_guard::require_upload_capability($coursecontext);
 
         // 3. Delegate to service. Ownership check is enforced in the SQL.
         $result = \local_fastpix\service\upload_service::instance()

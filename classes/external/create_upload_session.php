@@ -115,7 +115,7 @@ class create_upload_session extends \core_external\external_api {
         $coursecontext = $context->get_course_context();
         require_login(null, false);
         require_sesskey();
-        require_capability('mod/fastpix:uploadmedia', $coursecontext);
+        upload_capability_guard::require_upload_capability($coursecontext);
 
         // 3. Delegate to service layer. DRM gating, language validation and the
         // SSRF-free pushMediaSettings mapping all live in the service. The

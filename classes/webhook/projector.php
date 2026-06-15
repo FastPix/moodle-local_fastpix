@@ -386,7 +386,7 @@ class projector {
         if (isset($data->metadata->title) && (string)$data->metadata->title !== '') {
             return (string)$data->metadata->title;
         }
-        return "Asset {$fastpixid}";
+        return get_string('default_asset_title', 'local_fastpix', $fastpixid);
     }
 
     /**
