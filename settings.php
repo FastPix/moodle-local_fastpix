@@ -130,7 +130,7 @@ $settings->add(new admin_setting_heading(
     $credentialsdesc,
 ));
 
-// setting_credential extends admin_setting_configpasswordunmask, so both the
+// The setting_credential class extends admin_setting_configpasswordunmask, so both the
 // API key and secret render masked (browser dots + opt-in reveal) and the value
 // is redacted in the admin config-change log. Storage remains plaintext in
 // mdl_config_plugins (rule S8, disclosed in README.md). The card enhancer leaves
@@ -480,7 +480,7 @@ $fpcardcfg = [
         ['title' => get_string('settings_features', 'local_fastpix'), 'icon' => $fpcardicons['flag']],
         ['title' => get_string('settings_webhooks', 'local_fastpix'), 'icon' => $fpcardicons['hook']],
     ],
-    // apikey/apisecret are NOT listed here: they use admin_setting_configpasswordunmask,
+    // The apikey/apisecret fields are NOT listed here: they use admin_setting_configpasswordunmask,
     // which owns its own mask/reveal widget. The card enhancer only decorates the
     // remaining plain-text secret-ish fields.
     'secrets'     => [
@@ -516,9 +516,15 @@ $fpcardcfg = [
 // cards, masked credential inputs, pill toggles, custom selects, the AJAX
 // action buttons and the webhook-URL copy) degrades gracefully: with JS off
 // the page still renders and saves through Moodle's default widgets.
-global $PAGE;
-$PAGE->requires->js_call_amd('local_fastpix/settings', 'init', [[
-    'buttons' => $localfastpixjsbuttons,
-    'copy'    => $localfastpixjscopy,
-    'cards'   => $fpcardcfg,
-]]);
+// Only queue the browser enhancer when actually rendering the page. During CLI
+// (install/upgrade/cron) Moodle builds this settings tree with fulltree=true to
+// apply default settings; requiring page JS there is pointless and can run
+// before $PAGE is ready, so skip it.
+if (!CLI_SCRIPT) {
+    global $PAGE;
+    $PAGE->requires->js_call_amd('local_fastpix/settings', 'init', [[
+        'buttons' => $localfastpixjsbuttons,
+        'copy'    => $localfastpixjscopy,
+        'cards'   => $fpcardcfg,
+    ]]);
+}

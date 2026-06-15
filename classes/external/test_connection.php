@@ -68,7 +68,7 @@ class test_connection extends \core_external\external_api {
                 $error = get_string('test_connection_probe_failed', 'local_fastpix');
             }
         } catch (\Throwable $e) {
-            // health_probe() is documented never to throw; this is defensive.
+            // The health_probe() method is documented never to throw; this is defensive.
             // Log only the exception class server-side (the message may carry an
             // upstream response body — rule S2) and return a safe, localised
             // message to the caller rather than the internal class/message.

@@ -51,7 +51,7 @@ class upload_capability_guard {
      * @throws \required_capability_exception When the user lacks the capability.
      */
     public static function require_upload_capability(\context $context): void {
-        // get_capability_info() returns null for an undefined capability without
+        // Note: get_capability_info() returns null for an undefined capability without
         // emitting a debugging notice; that is the "owning module not installed"
         // signal. require_capability() below handles the normal allow/deny.
         if (get_capability_info(self::UPLOAD_CAPABILITY) === null) {

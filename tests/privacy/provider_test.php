@@ -27,6 +27,11 @@ use core_privacy\local\metadata\collection;
 use core_privacy\local\metadata\types\external_location;
 
 /**
+ * Tests for the local_fastpix privacy provider.
+ *
+ * @package    local_fastpix
+ * @copyright  2026 FastPix Inc. <support@fastpix.io>
+ * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @covers \local_fastpix\privacy\provider
  */
 final class provider_test extends \advanced_testcase {
