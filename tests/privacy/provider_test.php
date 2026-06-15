@@ -81,7 +81,7 @@ final class provider_test extends \advanced_testcase {
         $contextlist = provider::get_contexts_for_userid((int)$user->id);
 
         $this->assertCount(1, $contextlist);
-        // get_contextids() may return ids as strings; normalise before comparing.
+        // The get_contextids() result may include string ids; normalise before comparing.
         $contextids = array_map('intval', $contextlist->get_contextids());
         $this->assertContains((int)\context_system::instance()->id, $contextids);
     }
