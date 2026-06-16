@@ -160,6 +160,12 @@ class projector {
             'video.upload.media_created',
             'video.media.ready',
             'video.media.updated',
+            // A URL pull can fail before any "created" event is sent, so the
+            // failure is the FIRST event we see. Insert the row here too, so
+            // handle_event()'s video.media.failed case can mark it 'errored'
+            // instead of the failure being dropped as "unknown asset" (which
+            // left the upload stuck on "Preparing" forever).
+            'video.media.failed',
         ];
         if (in_array($eventtype, $inserttriggers, true)) {
             return $this->insert_from_created_event($event, $fastpixid);
@@ -370,10 +376,13 @@ class projector {
     }
 
     /**
-     * Resolve the asset title from the event payload. local_fastpix sends the
-     * uploader's title in pushMediaSettings.title, which FastPix surfaces at
-     * the media's data.title (verified live 2026-06-09). Precedence:
-     * data.title → data.metadata.title (legacy custom key) → synthetic.
+     * Resolve the asset title from the event payload. Direct uploads send the
+     * title in pushMediaSettings.title, which FastPix surfaces at the media's
+     * data.title (verified live 2026-06-09). URL pulls have no pushMediaSettings,
+     * and FastPix does not reliably echo the title back on the create-media
+     * webhook — so we fall back to the title local_fastpix stored on the matching
+     * upload_session (a local DB read, no gateway call). Precedence:
+     * data.title → data.metadata.title → upload_session.title → synthetic.
      *
      * @param \stdClass $data
      * @param string $fastpixid
@@ -386,7 +395,36 @@ class projector {
         if (isset($data->metadata->title) && (string)$data->metadata->title !== '') {
             return (string)$data->metadata->title;
         }
+        $sessiontitle = $this->title_from_session($fastpixid);
+        if ($sessiontitle !== '') {
+            return $sessiontitle;
+        }
         return get_string('default_asset_title', 'local_fastpix', $fastpixid);
+    }
+
+    /**
+     * The title local_fastpix recorded on the upload_session for this media.
+     * URL-pull sessions carry the chosen title (persist_session_with_settings)
+     * and reuse one UUID for both upload_id and the media id, so we match on
+     * either. Read-only local lookup — never a gateway call (rule W7/A5).
+     *
+     * @param string $fastpixid
+     * @return string Empty string when no session title is recorded.
+     */
+    private function title_from_session(string $fastpixid): string {
+        global $DB;
+        $titles = $DB->get_fieldset_select(
+            'local_fastpix_upload_session',
+            'title',
+            '(fastpix_id = :fpid OR upload_id = :upid) AND title IS NOT NULL',
+            ['fpid' => $fastpixid, 'upid' => $fastpixid]
+        );
+        foreach ($titles as $title) {
+            if ((string)$title !== '') {
+                return (string)$title;
+            }
+        }
+        return '';
     }
 
     /**
