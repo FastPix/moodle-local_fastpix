@@ -33,11 +33,19 @@ Course-aware uploads and a course-context permission fix.
 - URL-pulled videos now honour the activity's Media settings. The
   `create_url_pull_session` web service and `upload_service` method accept and
   forward `title`, `accesspolicy`, `captionsmode` and `languagecode` (parity
-  with `create_upload_session`) instead of falling back to defaults. The title
-  rides in the FastPix `metadata` bag (surfaced as `data.metadata.title`, which
-  the projector reads to name the asset); access policy and the DRM gate behave
-  as for direct uploads. The new web-service parameters are optional
-  (`VALUE_DEFAULT`), so existing callers remain compatible.
+  with `create_upload_session`) instead of falling back to defaults. Access
+  policy and the DRM gate behave as for direct uploads. The new web-service
+  parameters are optional (`VALUE_DEFAULT`), so existing callers remain
+  compatible.
+- URL-pulled videos are now titled correctly. Because FastPix does not reliably
+  echo the title on the URL-pull create-media webhook, the projector now falls
+  back to the title `local_fastpix` recorded on the matching upload session
+  (a local lookup, no gateway call) instead of naming the asset "Asset &lt;id&gt;".
+- A media that FAILS before any "created" event (e.g. a bad URL pull) is now
+  recorded as `errored` instead of being dropped as an "unknown asset". The
+  projector treats `video.media.failed` as a row-insert trigger, so the upload no
+  longer stays stuck on "Preparing" forever. (The user-facing "failed" message is
+  rendered by `mod_fastpix`.)
 
 ## [1.0.0] — 2026-05-21
 

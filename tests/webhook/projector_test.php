@@ -148,6 +148,57 @@ final class projector_test extends \advanced_testcase {
     }
 
     /**
+     * A lone video.media.failed for a not-yet-seen media must still create the
+     * asset row and mark it 'errored'. Previously the event was dropped as an
+     * "unknown asset", leaving URL-pull failures stuck on "Preparing" forever.
+     *
+     * @covers \local_fastpix\webhook\projector
+     */
+    public function test_project_video_media_failed_for_unknown_media_marks_errored(): void {
+        global $DB;
+        $event = $this->build_event('video.media.failed', 'media-fail-new');
+
+        (new projector())->project($event);
+
+        $row = $DB->get_record(self::TABLE, ['fastpix_id' => 'media-fail-new']);
+        $this->assertNotFalse($row);
+        $this->assertSame('errored', $row->status);
+    }
+
+    /**
+     * When the create webhook carries no title, the asset is named from the
+     * title local_fastpix stored on the matching upload_session (URL-pull title
+     * fix), not the synthetic "Asset <id>".
+     *
+     * @covers \local_fastpix\webhook\projector
+     */
+    public function test_project_title_falls_back_to_upload_session(): void {
+        global $DB;
+        $DB->insert_record('local_fastpix_upload_session', (object)[
+            'userid'      => 7,
+            'courseid'    => 0,
+            'upload_id'   => 'media-titled',
+            'upload_url'  => '',
+            'fastpix_id'  => null,
+            'source_url'  => 'https://cdn.example.com/v.mp4',
+            'state'       => 'pending',
+            'title'       => 'Lecture One',
+            'timecreated' => time(),
+            'expires_at'  => time() + 3600,
+        ]);
+
+        // Created event with NO data.title and NO data.metadata.title.
+        $event = $this->build_event('video.media.created', 'media-titled', [
+            'data' => (object)['status' => 'created'],
+        ]);
+        (new projector())->project($event);
+
+        $row = $DB->get_record(self::TABLE, ['fastpix_id' => 'media-titled']);
+        $this->assertNotFalse($row);
+        $this->assertSame('Lecture One', $row->title);
+    }
+
+    /**
      * Test that project video media ready updates existing row.
      *
      * @covers \local_fastpix\webhook\projector

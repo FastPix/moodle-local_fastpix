@@ -27,7 +27,7 @@ $plugin->component = 'local_fastpix';
 // Monotonic upgrade version for Moodle's upgrade machinery; it must never
 // decrease. The user-visible label is $plugin->release below. A single
 // consolidated 1.1.0 release bundles all fixes.
-$plugin->version = 2026061600;          // Internal upgrade-version (monotonic).
+$plugin->version = 2026061601;          // Internal upgrade-version (monotonic).
 $plugin->requires  = 2024100100;        // Moodle 4.5 LTS.
 // Release candidate: code work is complete, but the operational-verification
 // queue (real-tenant checks) gates the STABLE label. Flip to MATURITY_STABLE
