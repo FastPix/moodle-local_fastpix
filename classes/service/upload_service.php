@@ -155,13 +155,24 @@ public function create_file_upload_session(
     /**
      * Create url pull session.
      *
+     * The trailing $title / $captionsmode / $languagecode params are applied the
+     * same way create_direct_upload_with_settings() applies them, so URL-pulled
+     * videos honour the activity's Media settings instead of falling back to
+     * defaults. They are optional (and default-valued) for backward compatibility
+     * with callers that pass only userid + source_url.
+     *
      * @param int $userid
      * @param string $sourceurl
      * @param bool $drmrequired
      * @param ?string $accesspolicy
      * @param ?string $maxresolution
      * @param int $courseid
+     * @param string $title Media title; applied via FastPix metadata.
+     * @param string $captionsmode none | auto | vtt
+     * @param ?string $languagecode Required (and validated) when captionsmode = auto.
      * @return \stdClass
+     * @throws \invalid_parameter_exception on bad captions/language.
+     * @throws drm_not_configured when policy is self::POLICY_DRM but DRM is not configured.
      */
 public function create_url_pull_session(
     int $userid,
@@ -170,14 +181,21 @@ public function create_url_pull_session(
     ?string $accesspolicy = null,
     ?string $maxresolution = null,
     int $courseid = 0,
+    string $title = '',
+    string $captionsmode = 'none',
+    ?string $languagecode = null,
 ): \stdClass {
     // SSRF guard runs BEFORE any gateway call (rule S6).
     $this->assert_ssrf_safe($sourceurl);
+    if (!in_array($captionsmode, ['none', 'auto', 'vtt'], true)) {
+        throw new \invalid_parameter_exception('captionsmode:' . $captionsmode);
+    }
     // Gate on the EFFECTIVE access policy, not the raw $drmrequired flag: the
     // policy can resolve to self::POLICY_DRM via the caller's value or the admin
     // default_access_policy config without $drmrequired being set. Either way,
     // a self::POLICY_DRM upload requires the W12 double-gate (drm_enabled()).
-    $this->assert_drm_gate($this->resolve_access_policy($drmrequired, $accesspolicy));
+    $effectivepolicy = $this->resolve_access_policy($drmrequired, $accesspolicy);
+    $this->assert_drm_gate($effectivepolicy);
 
     // Dedup window: same (userid, source_url) within 60s returns the.
     // Existing session row. Mirrors the file-upload dedup contract (W11).
@@ -190,6 +208,16 @@ public function create_url_pull_session(
 
     $params = $this->resolve_upload_params($userid, $drmrequired, $accesspolicy, $maxresolution);
 
+    // The URL-pull endpoint has no pushMediaSettings; the title rides in the
+    // FastPix metadata bag, which FastPix echoes back as data.metadata.title —
+    // the projector reads that to name the asset (resolve_title fallback).
+    if ($title !== '') {
+        $params['fastpix_metadata']['title'] = $title;
+    }
+
+    // Auto-captions subtitles object (shared helper with the direct-upload path).
+    $subtitles = $this->build_captions_subtitles($captionsmode, $languagecode);
+
     $response = \local_fastpix\api\gateway::instance()->media_create_from_url(
         $sourceurl,
         $params['owner_hash'],
@@ -197,16 +225,23 @@ public function create_url_pull_session(
         $params['access_policy'],
         $params['drm_config_id'],
         $params['max_resolution'],
+        $subtitles,
     );
 
     $uploadid = (string)($response->data->id ?? $response->id ?? '');
 
-    $session = $this->persist_session(
-        userid:     $userid,
-        uploadid:  $uploadid,
-        uploadurl: '',
-        sourceurl: $sourceurl,
-        courseid:  $courseid,
+    $session = $this->persist_session_with_settings(
+        $userid,
+        $uploadid,
+        '',
+        [
+            'title'         => $title,
+            'access_policy' => $params['access_policy'],
+            'captions_mode' => $captionsmode,
+            'language_code' => $languagecode,
+        ],
+        $courseid,
+        $sourceurl,
     );
 
     $cache->set($hashkey, $session->id);
@@ -248,16 +283,8 @@ public function create_direct_upload_with_settings(
     $this->assert_drm_gate($accesspolicy);
 
     // Auto-captions: validate the spoken language and build the subtitles
-    // object. FastPix wants a single {languageName, languageCode} object — a
-    // list is rejected with HTTP 400 (verified live 2026-06-09).
-    $subtitles = null;
-    if ($captionsmode === 'auto') {
-        $languagename = $this->subtitle_language_name($languagecode);
-        $subtitles = [
-            'languageName' => $languagename,
-            'languageCode' => (string)$languagecode,
-        ];
-    }
+    // object (shared with the URL-pull path so the two never diverge).
+    $subtitles = $this->build_captions_subtitles($captionsmode, $languagecode);
 
     // DRM uploads send accessPolicy=self::POLICY_DRM alongside the drmConfigurationId.
     // FastPix REQUIRES this pairing — accessPolicy='private'+drmConfigurationId
@@ -373,6 +400,27 @@ private function subtitle_language_name(?string $code): string {
 }
 
     /**
+     * Build the auto-captions subtitles object for a captions mode, shared by
+     * the direct-upload and URL-pull paths so they never diverge. Returns the
+     * single {languageName, languageCode} object FastPix expects for "auto",
+     * or null for "none"/"vtt" (no subtitles requested at create time).
+     *
+     * @param string $captionsmode none | auto | vtt
+     * @param ?string $languagecode Validated only when $captionsmode = auto.
+     * @return ?array
+     * @throws \invalid_parameter_exception when the language is missing/unsupported.
+     */
+private function build_captions_subtitles(string $captionsmode, ?string $languagecode): ?array {
+    if ($captionsmode !== 'auto') {
+        return null;
+    }
+    return [
+        'languageName' => $this->subtitle_language_name($languagecode),
+        'languageCode' => (string)$languagecode,
+    ];
+}
+
+    /**
      * Dedup key for the settings-based direct upload entry point. Same user +
      * identical (title, policy, captions, language) inside the 60s window
      * returns the existing session (double-submit guard).
@@ -403,6 +451,7 @@ private function dedup_key_settings(
      * @param string $uploadurl
      * @param array $settings {title:string, access_policy:string, captions_mode:string, language_code:?string}
      * @param int $courseid
+     * @param ?string $sourceurl Source URL for URL-pull sessions; null for direct uploads.
      * @return \stdClass
      */
 private function persist_session_with_settings(
@@ -411,6 +460,7 @@ private function persist_session_with_settings(
     string $uploadurl,
     array $settings,
     int $courseid = 0,
+    ?string $sourceurl = null,
 ): \stdClass {
     global $DB;
     $now = time();
@@ -421,7 +471,7 @@ private function persist_session_with_settings(
         'upload_id'     => $uploadid,
         'upload_url'    => $uploadurl,
         'fastpix_id'    => null,
-        'source_url'    => null,
+        'source_url'    => $sourceurl,
         'state'         => 'pending',
         'title'         => $settings['title'],
         'access_policy' => $settings['access_policy'],
