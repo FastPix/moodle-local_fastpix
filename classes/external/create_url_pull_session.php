@@ -56,23 +56,68 @@ class create_url_pull_session extends \core_external\external_api {
                 'Public HTTPS URL of the source video (FastPix will fetch from here)',
                 VALUE_REQUIRED
             ),
+            // The following mirror create_upload_session's settings. They are
+            // VALUE_DEFAULT (not REQUIRED) so existing callers that pass only
+            // contextid + source_url keep working (backward compatible).
+            'title' => new \core_external\external_value(
+                PARAM_TEXT,
+                'Title applied to the pulled video (the activity name)',
+                VALUE_DEFAULT,
+                ''
+            ),
+            'accesspolicy' => new \core_external\external_value(
+                PARAM_ALPHA,
+                'Access policy: private, public, or drm',
+                VALUE_DEFAULT,
+                ''
+            ),
+            'captionsmode' => new \core_external\external_value(
+                PARAM_ALPHA,
+                'Captions: none, auto (Whisper), or vtt (manual)',
+                VALUE_DEFAULT,
+                'none'
+            ),
+            'languagecode' => new \core_external\external_value(
+                PARAM_ALPHANUMEXT,
+                'Spoken-language code for auto captions; required when captionsmode=auto',
+                VALUE_DEFAULT,
+                ''
+            ),
         ]);
     }
 
     /**
      * Create a URL-pull session.
      *
-     * @param int    $contextid Course context id the upload belongs to
-     * @param string $sourceurl Public HTTPS URL FastPix will fetch from
+     * @param int    $contextid    Course context id the upload belongs to
+     * @param string $sourceurl    Public HTTPS URL FastPix will fetch from
+     * @param string $title        Title applied to the pulled video
+     * @param string $accesspolicy private | public | drm (empty = admin default)
+     * @param string $captionsmode none | auto | vtt
+     * @param string $languagecode Spoken-language code (auto captions only)
      * @return array{session_id:int,upload_id:string,upload_url:string,expires_at:int,deduped:bool}
      */
-    public static function execute(int $contextid, string $sourceurl): array {
+    public static function execute(
+        int $contextid,
+        string $sourceurl,
+        string $title = '',
+        string $accesspolicy = '',
+        string $captionsmode = 'none',
+        string $languagecode = ''
+    ): array {
         global $USER;
 
         // 1. Validate parameters first (throws invalid_parameter_exception).
         $params = self::validate_parameters(
             self::execute_parameters(),
-            ['contextid' => $contextid, 'source_url' => $sourceurl]
+            [
+                'contextid'    => $contextid,
+                'source_url'   => $sourceurl,
+                'title'        => $title,
+                'accesspolicy' => $accesspolicy,
+                'captionsmode' => $captionsmode,
+                'languagecode' => $languagecode,
+            ]
         );
 
         // 2. Authenticate + authorize against the COURSE context the upload
@@ -91,12 +136,19 @@ class create_url_pull_session extends \core_external\external_api {
         // 3. Delegate to service layer. SSRF allow-list runs INSIDE the service.
         // BEFORE the gateway call (rule S6, @upload-service guardrail).
         // Ssrf_blocked exceptions propagate to the caller as service errors.
-        // The courseid scopes the upload for the editor picker.
+        // The courseid scopes the upload for the editor picker. Title, access
+        // policy and captions are forwarded so URL-pulled videos honour the
+        // activity's Media settings (parity with create_upload_session). An
+        // empty accesspolicy lets the service apply the admin default.
         $result = \local_fastpix\service\upload_service::instance()
             ->create_url_pull_session(
                 (int)$USER->id,
                 $params['source_url'],
+                accesspolicy: $params['accesspolicy'] !== '' ? $params['accesspolicy'] : null,
                 courseid: (int)$coursecontext->instanceid,
+                title: $params['title'],
+                captionsmode: $params['captionsmode'],
+                languagecode: $params['languagecode'] !== '' ? $params['languagecode'] : null,
             );
 
         // 4. Return matches execute_returns() structure.

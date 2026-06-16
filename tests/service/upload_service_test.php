@@ -405,6 +405,71 @@ final class upload_service_test extends \advanced_testcase {
     }
 
     /**
+     * URL-pulled videos must honour the activity Media settings: title, access
+     * policy and captions are accepted and forwarded — to the FastPix gateway
+     * call AND the persisted session row — for parity with create_upload_session.
+     *
+     * @covers \local_fastpix\service\upload_service
+     */
+    public function test_create_url_pull_session_forwards_media_settings(): void {
+        global $DB;
+        $captured = null;
+        $mock = $this->createMock(\local_fastpix\api\gateway::class);
+        $mock->method('media_create_from_url')->willReturnCallback(
+            function (...$args) use (&$captured) {
+                $captured = $args;
+                return $this->default_url_pull_response('m-settings');
+            }
+        );
+        $this->inject_gateway_mock($mock);
+
+        $resp = upload_service::instance()->create_url_pull_session(
+            42,
+            'https://1.2.3.4/video.mp4',
+            accesspolicy: 'public',
+            title: 'URL Pull Title',
+            captionsmode: 'auto',
+            languagecode: 'en',
+        );
+
+        // Forwarded to the gateway. media_create_from_url args are:
+        // [0]sourceurl [1]ownerhash [2]metadata [3]accesspolicy [4]drmconfigid
+        // [5]maxresolution [6]subtitles. Title rides in the metadata bag;
+        // access policy and the auto-captions subtitles object pass through.
+        $this->assertSame('URL Pull Title', $captured[2]['title']);
+        $this->assertSame('public', $captured[3]);
+        $this->assertSame('en', $captured[6]['languageCode']);
+        $this->assertNotEmpty($captured[6]['languageName']);
+
+        // Forwarded to the persisted session row.
+        $row = $DB->get_record('local_fastpix_upload_session', ['id' => $resp->session_id]);
+        $this->assertSame('URL Pull Title', $row->title);
+        $this->assertSame('public', $row->access_policy);
+        $this->assertSame('auto', $row->captions_mode);
+        $this->assertSame('en', $row->language_code);
+        $this->assertSame('https://1.2.3.4/video.mp4', $row->source_url);
+    }
+
+    /**
+     * URL pull mirrors create_upload_session's DRM gate: accesspolicy=drm with
+     * DRM not configured fails loud rather than silently downgrading.
+     *
+     * @covers \local_fastpix\service\upload_service
+     */
+    public function test_create_url_pull_session_drm_without_config_fails(): void {
+        $mock = $this->createMock(\local_fastpix\api\gateway::class);
+        $mock->expects($this->never())->method('media_create_from_url');
+        $this->inject_gateway_mock($mock);
+
+        $this->expectException(\local_fastpix\exception\drm_not_configured::class);
+        upload_service::instance()->create_url_pull_session(
+            42,
+            'https://1.2.3.4/video.mp4',
+            accesspolicy: 'drm',
+        );
+    }
+
+    /**
      * Test that create url pull session rejects http scheme.
      *
      * @covers \local_fastpix\service\upload_service

@@ -223,6 +223,7 @@ public function input_video_direct_upload(
      * @param string $accesspolicy
      * @param ?string $drmconfigid
      * @param string $maxresolution
+     * @param ?array $subtitles Auto-captions object {languageName, languageCode}; null otherwise.
      * @return \stdClass
      */
 public function media_create_from_url(
@@ -232,6 +233,7 @@ public function media_create_from_url(
     string $accesspolicy,
     ?string $drmconfigid,
     string $maxresolution = '1080p',
+    ?array $subtitles = null,
 ): \stdClass {
     $body = [
         'inputs'        => [['type' => 'video', 'url' => $sourceurl]],
@@ -241,6 +243,14 @@ public function media_create_from_url(
     ];
     if ($drmconfigid !== null && $drmconfigid !== '') {
         $body['drmConfigurationId'] = $drmconfigid;
+    }
+    if (!empty($subtitles)) {
+        // Auto-generated captions for URL pull. Mirrors the direct-upload
+        // subtitles object shape; only sent when captions=auto (none/vtt send
+        // nothing, so they are unaffected). NB: confirm this field against the
+        // live /v1/on-demand contract before relying on auto captions over URL
+        // pull — unlike direct upload, it is not yet verified against FastPix.
+        $body['subtitles'] = $subtitles;
     }
 
     return $this->request(

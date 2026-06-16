@@ -30,6 +30,14 @@ Course-aware uploads and a course-context permission fix.
   checks). Permission is now evaluated at the course context — enrolled
   editing teachers can upload, and enrolled students are correctly blocked
   from uploading or embedding while still able to view.
+- URL-pulled videos now honour the activity's Media settings. The
+  `create_url_pull_session` web service and `upload_service` method accept and
+  forward `title`, `accesspolicy`, `captionsmode` and `languagecode` (parity
+  with `create_upload_session`) instead of falling back to defaults. The title
+  rides in the FastPix `metadata` bag (surfaced as `data.metadata.title`, which
+  the projector reads to name the asset); access policy and the DRM gate behave
+  as for direct uploads. The new web-service parameters are optional
+  (`VALUE_DEFAULT`), so existing callers remain compatible.
 
 ## [1.0.0] — 2026-05-21
 

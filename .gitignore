@@ -45,3 +45,6 @@ node_modules/
 # Claude Code dev tooling — agents, rules, prompts, ADR scaffolding.
 # Kept local; not part of the published repo or release archive.
 .claude/
+
+# Playwright MCP scratch (browser snapshots / console logs). Local only.
+.playwright-mcp/
