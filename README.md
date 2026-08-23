@@ -1,4 +1,9 @@
-# local_fastpix
+# local_fastpix - FastPix video integration for Moodle (foundation plugin)
+
+[![Moodle 4.5+](https://img.shields.io/badge/Moodle-4.5%2B-F98012?logo=moodle&logoColor=white)](https://moodle.org/)
+[![PHP 8.1+](https://img.shields.io/badge/PHP-8.1%2B-777BB4?logo=php&logoColor=white)](https://www.php.net/)
+[![Release 1.1.0](https://img.shields.io/badge/release-1.1.0-0E7C66)](https://github.com/FastPix/moodle-local_fastpix/blob/main/CHANGELOG.md)
+
 
 A Moodle local plugin that connects your Moodle site to
 [FastPix](https://www.fastpix.com), the video hosting and streaming
@@ -8,7 +13,13 @@ and editor plugins.
 
 Use this plugin if you administer a Moodle site and want to add FastPix
 video support. On its own, it ships only an admin settings page, a
-webhook endpoint, and a health probe. 
+webhook endpoint, and a health probe.
+
+**Works with:** Moodle 4.5 LTS or later · PHP 8.1+ · MySQL / MariaDB / PostgreSQL / MS SQL / Oracle · the FastPix Moodle activity, filter, and editor plugins
+
+📖 **Setup guide:** https://fastpix.com/docs/moodle/local-plugin &nbsp;·&nbsp; 🚀 **Free FastPix account:** https://dashboard.fastpix.com/signup
+
+> **Install this first.** `local_fastpix` is the foundation of the FastPix Moodle suite - it holds your FastPix API credentials and does the shared work (secure API gateway, webhook ingestion, playback-token signing) for the FastPix **Video activity**, **filter**, and **editor** plugins. See [The FastPix Moodle suite](#the-fastpix-moodle-suite). 
 
 
 
@@ -174,7 +185,7 @@ the grace period.
   never became a video is kept before the orphan sweeper cancels the
   FastPix upload and deletes the session row. Default 1 day.
 - **Unattached video grace period**: how long a ready video may stay
-  unattached to any activity before it is released — soft-deleted, then
+  unattached to any activity before it is released - soft-deleted, then
   permanently removed by the 7-day purge. Default 1 week.
 - **Unattached video warning lead time**: how long before release the
   owner is warned that an unattached video will be removed, giving them
@@ -270,7 +281,7 @@ defined by the `mod_fastpix` plugin, not this one.
 The upload web services authorise `mod/fastpix:uploadmedia` at the
 **course** context (not the site): a user must hold it in the course
 where the upload happens. Editing teachers have it by default; enrolled
-students do not, so they cannot upload or embed videos — they can still
+students do not, so they cannot upload or embed videos - they can still
 view them.
 
 ## Health endpoint
@@ -325,6 +336,45 @@ under GDPR is supported.
 
 For full details after install, see **Site administration > Users >
 Privacy and policies > Data registry** in your Moodle site.
+
+## The FastPix Moodle suite
+
+`local_fastpix` is the foundation plugin. Install it first, then add the plugins your site needs. All are GPL-3.0 and build on this one:
+
+| Plugin | What it does | Install order |
+|---|---|---|
+| **local_fastpix** (this repo) | Foundation: stores FastPix credentials, secure HTTP gateway, webhook ingestion, playback-token (JWT) signing. | 1 (required first) |
+| [mod_fastpix](https://github.com/FastPix/moodle-mod_fastpix) | The **FastPix Video** activity - upload or URL-pull a video, track watch coverage, and write completion and grades automatically. | 2 |
+| [filter_fastpix](https://github.com/FastPix/moodle-filter_fastpix) | Embed a FastPix video anywhere Moodle renders rich text, using a short code. | 3 |
+| [tiny_fastpix](https://github.com/FastPix/moodle-tiny_fastpix) | A TinyMCE editor button that inserts the embed short code for authors. | 4 |
+
+Browse everything in the [FastPix organization](https://github.com/orgs/FastPix/repositories).
+
+## FAQ
+
+**What is local_fastpix, and do I need it?**
+It is the foundation plugin for FastPix on Moodle. Install it first: it stores your FastPix API credentials and provides the shared gateway, webhook ingestion, and playback-token signing that the FastPix activity, filter, and editor plugins depend on. See [The FastPix Moodle suite](#the-fastpix-moodle-suite).
+
+**Which Moodle and PHP versions are supported?**
+Moodle 4.5 LTS or later, and PHP 8.1 or later (tested through PHP 8.3). See [Requirements](#requirements).
+
+**How do I install it?**
+From **Site administration > Plugins > Install plugins** - search the Moodle Plugins directory for FastPix, or upload the release ZIP. See [Install](#install).
+
+**What FastPix credentials does it need?**
+A FastPix account, an **API Key** and **API Secret** (from the FastPix dashboard under Settings > API Keys), and a webhook signing secret. See [Configure](#configure).
+
+**Does it add video activities or embeds on its own?**
+No. By itself it only adds an admin settings page, a webhook endpoint, and a health probe. For graded video activities install [mod_fastpix](https://github.com/FastPix/moodle-mod_fastpix); to embed videos in rich text add [filter_fastpix](https://github.com/FastPix/moodle-filter_fastpix) and [tiny_fastpix](https://github.com/FastPix/moodle-tiny_fastpix).
+
+**How do I enable DRM?**
+DRM is optional. Set both the DRM Configuration ID and the matching setting; if either is missing, DRM stays disabled. See [DRM (optional)](#drm-optional).
+
+**Where is my API Secret stored?**
+Moodle stores it in the `config_plugins` table using the standard `admin_setting_configpasswordunmask` field. See [Configuration reference](#configuration-reference).
+
+**How do I check the integration is healthy?**
+The plugin exposes a health endpoint you can probe for monitoring. See [Health endpoint](#health-endpoint).
 
 ## Support
 
