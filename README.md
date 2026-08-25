@@ -113,7 +113,7 @@ The plugin works with any database server supported by Moodle:
 
 Choose one of the following methods.
 
-### Install from the Moodle Plugins directory
+### Install the Plugin from Moodle Marketplace
 
 1. Sign in to your Moodle site as an administrator.
 2. Go to **Site administration > Plugins > Install plugins**.
@@ -121,7 +121,7 @@ Choose one of the following methods.
 
 ### Install from a ZIP file
 
-1. Download the latest release from the **Download** button on this Moodle plugins directory page.
+1. Download the latest release from the **Download** button on this Moodle Marketplace page.
 2. Sign in to your Moodle site as an administrator.
 3. Go to **Site administration > Plugins > Install plugins** and upload
    the ZIP file. Don't unzip it first; Moodle installs the package
@@ -359,7 +359,7 @@ It is the foundation plugin for FastPix on Moodle. Install it first: it stores y
 Moodle 4.5 LTS or later, and PHP 8.1 or later (tested through PHP 8.3). See [Requirements](#requirements).
 
 **How do I install it?**
-From **Site administration > Plugins > Install plugins** - search the Moodle Plugins directory for FastPix, or upload the release ZIP. See [Install](#install).
+From **Site administration > Plugins > Install plugins** - search the Moodle Marketplace for FastPix, or upload the release ZIP. See [Install](#install).
 
 **What FastPix credentials does it need?**
 A FastPix account, an **API Key** and **API Secret** (from the FastPix dashboard under Settings > API Keys), and a webhook signing secret. See [Configure](#configure).
